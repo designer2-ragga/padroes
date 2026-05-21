@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { PatternConfig, Seasoning, PatternGridMode } from '../types';
+import { PatternConfig, Seasoning } from '../types';
 import { renderPatternTile, generateSVGPatternString, getCuratedConfigForSeasoning } from '../utils/patternRenderer';
 import { 
   ZoomIn, 
@@ -98,21 +98,8 @@ export default function PatternWorkspace({
 
   const handleFrameSelect = (p: FramePreset) => {
     setSelectedPreset(p);
-
-    // Choose ideal grid geometry alignment to match the visual format flow
-    let idealGridMode: PatternGridMode = config.gridMode;
-    if (Math.abs(p.ratio - 1) < 0.01) {
-      idealGridMode = 'grid'; // centered balance for squares
-    } else if (p.ratio < 1) {
-      idealGridMode = 'half-drop'; // beautiful vertical staggered flow for portraits
-    } else {
-      idealGridMode = 'brick'; // beautiful horizontal staggered landscape rows for wide cinema
-    }
-
-    onChangeConfig({
-      ...config,
-      gridMode: idealGridMode,
-    });
+    // gridMode field removed (was dead — no renderer consumed it).
+    // Frame ratio change still triggers canvas resize via the canvasW/canvasH effect.
   };
 
   // Direct vector SVG download handler that strictly respects frame format viewBox aspect ratios

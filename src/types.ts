@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type PatternGridMode = 'grid' | 'half-drop' | 'brick' | 'mirror';
-
 export interface Seasoning {
   id: string;
   name: string;
@@ -18,17 +16,13 @@ export interface Seasoning {
 }
 
 export interface PatternConfig {
-  zoom: number;          // 100 to 1000 (%)
-  density: number;       // 10 to 60 (particle multiplier count)
-  rotation: number;      // 0 to 360 (degrees)
-  noise: number;         // 0 to 100 (camera grain noise)
-  lineWidth: number;     // 1 to 5 (particle line thickness)
-  fillAlpha: number;     // 0 to 100 (%)
-  lightingAngle: number; // 0 to 360
-  gridScale: number;     // 10 to 150 (pixel size of one tile)
-  gridMode: PatternGridMode;
+  zoom: number;          // 40 to 1200 (x magnification)
+  density: number;       // 2 to 40 (structures per viewport)
+  rotation: number;      // 0 to 180 (degrees, internal anisotropy axis only)
+  noise: number;         // 0 to 100 (camera grain noise — Salt fallback path only, temporary until Sal rewrite)
+  lineWidth: number;     // 0.5 to 6.0 (px, absolute pixel stroke thickness)
   themeMode: 'light' | 'dark';
-  voronoiRoundedness: number;    // 0 to 100 (% of corner rounding for Voronoi cells)
+  voronoiRoundedness: number;    // 0 to 100 (% of corner rounding for Voronoi cells, applied via cubic ease-in)
   layoutSeed: number;            // deterministic layout seed
 }
 

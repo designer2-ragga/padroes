@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Seasoning, PatternConfig, PatternGridMode, PARAMETER_PRESETS } from '../types';
+import { Seasoning, PatternConfig, PARAMETER_PRESETS } from '../types';
 
 // Deterministic pseudo-random number generator to prevent flickering patterns
 export class SeededRandom {
@@ -2546,24 +2546,15 @@ export function generateSVGPatternString(
 }
 
 // Automatically normalize parameters per seasoning to maintain curated visual occupancy (55%-75%) and negative space
+// presetRatio kept in signature for API compatibility but no longer drives a gridMode field (removed dead param)
 export function getCuratedConfigForSeasoning(
   seasoningId: string,
-  presetRatio: number,
+  _presetRatio: number,
   themeMode: 'light' | 'dark',
   customSeed?: number
 ): PatternConfig {
   const seed = customSeed ?? Math.floor(Math.random() * 100000) + 1;
   const rng = new SeededRandom(seasoningId + '_curation_v4_' + seed);
-
-  // Intelligently select a default gridMode matching the frame aspect ratio
-  let gridMode: PatternGridMode = 'grid';
-  if (Math.abs(presetRatio - 1) < 0.01) {
-    gridMode = 'grid'; // centered stability for squares
-  } else if (presetRatio < 1) {
-    gridMode = 'half-drop'; // beautiful column-staggered vertical flow for portraits
-  } else {
-    gridMode = 'brick'; // beautiful row-staggered horizontal flow for landscapes
-  }
 
   // Get per-spice parameter presets (realistic microscopic magnification)
   const preset = PARAMETER_PRESETS[seasoningId] || PARAMETER_PRESETS['sal'];
@@ -2575,20 +2566,12 @@ export function getCuratedConfigForSeasoning(
   const lineWidth = preset.lineWidth.default + rng.range(-0.2, 0.2);
   const voronoiRoundedness = Math.round(rng.range(preset.voronoiRoundedness.default * 0.9, preset.voronoiRoundedness.default * 1.1));
 
-  // Grid scale adjusts with zoom for consistent tile appearance
-  const baseGridScale = 340;
-  const gridScale = Math.round(baseGridScale * (zoom / 100));
-
   return {
     zoom,
     density,
     rotation,
     noise: 12,
     lineWidth,
-    fillAlpha: 85,
-    lightingAngle: 135,
-    gridScale,
-    gridMode,
     themeMode,
     voronoiRoundedness,
     layoutSeed: seed,
