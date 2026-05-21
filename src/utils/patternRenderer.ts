@@ -1913,15 +1913,20 @@ export function renderPatternTile(
   });
   ctx.restore();
 
-  // Draw camera grain sensor noise overlay
+  // Draw camera grain sensor noise overlay (deterministic — seeded by layoutSeed)
   if (config.noise > 0) {
     ctx.save();
     const noiseImg = ctx.createImageData(width, height);
     const data = noiseImg.data;
     const noiseStrength = config.noise * 0.22;
+    // Replaces previous Math.random() — that made Salt non-deterministic across
+    // renders, breaking baseline-snapshot reproducibility for the only spice
+    // that consumes the noise overlay (Sal). Same visual character (white/black
+    // grain), now reproducible per seed.
+    const noiseRng = new SeededRandom('grain_noise_' + seasoning.id + '_' + Math.round(config.layoutSeed ?? 1));
 
     for (let i = 0; i < data.length; i += 4) {
-      const grain = Math.random() * noiseStrength;
+      const grain = noiseRng.next() * noiseStrength;
       data[i] = isDark ? 0 : 255;
       data[i + 1] = isDark ? 0 : 255;
       data[i + 2] = isDark ? 0 : 255;
