@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+# diff-snapshots.cjs scratch output — never commit
+tmp-snapshots/
