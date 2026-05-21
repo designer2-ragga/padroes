@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PatternConfig, Seasoning } from '../types';
 import { renderPatternTile, generateSVGPatternString, getCuratedConfigForSeasoning } from '../utils/patternRenderer';
+import { PARAMETERS, SpiceId, formatParamValue } from '../engine/parameters';
 import { 
   ZoomIn, 
   SlidersHorizontal, 
@@ -309,58 +310,65 @@ export default function PatternWorkspace({
             Parâmetros Morfológicos
           </h3>
 
-          {/* Zoom (Magnificacao) — realistic 40x–1200x microscope range */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-              <span className="flex items-center gap-1.5">
-                <ZoomIn className="h-3 w-3 text-neutral-400" /> Magnificação (Zoom)
-              </span>
-              <span className="font-mono text-neutral-500">{config.zoom}x</span>
+          {/* Global sliders — read all metadata + range from the canonical PARAMETERS registry */}
+          {PARAMETERS.zoom.visibleFor[seasoning.id as SpiceId] && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
+                <span className="flex items-center gap-1.5">
+                  <ZoomIn className="h-3 w-3 text-neutral-400" /> {PARAMETERS.zoom.uiLabel}
+                </span>
+                <span className="font-mono text-neutral-500">{formatParamValue('zoom', config.zoom)}</span>
+              </div>
+              <input
+                type="range"
+                min={PARAMETERS.zoom.min}
+                max={PARAMETERS.zoom.max}
+                step={PARAMETERS.zoom.step}
+                value={config.zoom}
+                onChange={(e) => updateParam('zoom', parseFloat(e.target.value))}
+                className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min={40}
-              max={1200}
-              value={config.zoom}
-              onChange={(e) => updateParam('zoom', parseInt(e.target.value))}
-              className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
-            />
-          </div>
+          )}
 
-          {/* Density — structures visible in viewport (2 sparse → 40 ultra-dense) */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-              <span>Densidade do Desenho</span>
-              <span className="font-mono text-neutral-500">{config.density.toFixed(0)}</span>
+          {PARAMETERS.density.visibleFor[seasoning.id as SpiceId] && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
+                <span>{PARAMETERS.density.uiLabel}</span>
+                <span className="font-mono text-neutral-500">{formatParamValue('density', config.density)}</span>
+              </div>
+              <input
+                type="range"
+                min={PARAMETERS.density.min}
+                max={PARAMETERS.density.max}
+                step={PARAMETERS.density.step}
+                value={config.density}
+                onChange={(e) => updateParam('density', parseFloat(e.target.value))}
+                className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min={2}
-              max={40}
-              value={config.density}
-              onChange={(e) => updateParam('density', parseInt(e.target.value))}
-              className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
-            />
-          </div>
+          )}
 
-          {/* Inclinação Angular — internal tissue anisotropy bias (0–180°, NOT canvas rotation) */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-              <span>Inclinação Angular</span>
-              <span className="font-mono text-neutral-500">{config.rotation}°</span>
+          {PARAMETERS.rotation.visibleFor[seasoning.id as SpiceId] && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
+                <span>{PARAMETERS.rotation.uiLabel}</span>
+                <span className="font-mono text-neutral-500">{formatParamValue('rotation', config.rotation)}</span>
+              </div>
+              <input
+                type="range"
+                min={PARAMETERS.rotation.min}
+                max={PARAMETERS.rotation.max}
+                step={PARAMETERS.rotation.step}
+                value={config.rotation}
+                onChange={(e) => updateParam('rotation', parseFloat(e.target.value))}
+                className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min={0}
-              max={180}
-              value={config.rotation}
-              onChange={(e) => updateParam('rotation', parseInt(e.target.value))}
-              className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
-            />
-          </div>
+          )}
 
-          {/* Voronoi rounded corners control — Louro, Alho, Pimenta, Manjericão */}
-          {(seasoning.id === 'louro' || seasoning.id === 'alho' || seasoning.id === 'pimenta' || seasoning.id === 'manjericao') && (
+          {/* Spice-accent sliders — same registry, accent color from seasoning */}
+          {PARAMETERS.voronoiRoundedness.visibleFor[seasoning.id as SpiceId] && (
             <div
               className="space-y-1.5 pt-2 pb-1 border-t border-dashed border-neutral-200"
               id="voronoi-roundedness-container"
@@ -368,16 +376,19 @@ export default function PatternWorkspace({
             >
               <div className="flex justify-between text-[11px] font-medium text-neutral-800">
                 <span className="font-bold flex items-center gap-1.5" style={{ color: seasoning.primaryColor }}>
-                  <Flame className="h-3 w-3" style={{ color: seasoning.primaryColor }} /> Arredondamento das Células
+                  <Flame className="h-3 w-3" style={{ color: seasoning.primaryColor }} /> {PARAMETERS.voronoiRoundedness.uiLabel}
                 </span>
-                <span className="font-mono" style={{ color: seasoning.primaryColor }}>{config.voronoiRoundedness ?? 35}%</span>
+                <span className="font-mono" style={{ color: seasoning.primaryColor }}>
+                  {formatParamValue('voronoiRoundedness', config.voronoiRoundedness ?? PARAMETERS.voronoiRoundedness.defaults[seasoning.id as SpiceId])}
+                </span>
               </div>
               <input
                 type="range"
-                min={0}
-                max={100}
-                value={config.voronoiRoundedness ?? 35}
-                onChange={(e) => updateParam('voronoiRoundedness', parseInt(e.target.value))}
+                min={PARAMETERS.voronoiRoundedness.min}
+                max={PARAMETERS.voronoiRoundedness.max}
+                step={PARAMETERS.voronoiRoundedness.step}
+                value={config.voronoiRoundedness ?? PARAMETERS.voronoiRoundedness.defaults[seasoning.id as SpiceId]}
+                onChange={(e) => updateParam('voronoiRoundedness', parseFloat(e.target.value))}
                 className="w-full h-1 rounded-full cursor-pointer"
                 style={{ accentColor: seasoning.primaryColor }}
                 id="voronoi-roundedness-slider"
@@ -385,24 +396,25 @@ export default function PatternWorkspace({
             </div>
           )}
 
-          {/* Stroke thickness control — all microscope-grid patterns */}
-          {(seasoning.id === 'pimenta' || seasoning.id === 'louro' || seasoning.id === 'alho' || seasoning.id === 'manjericao') && (
+          {PARAMETERS.lineWidth.visibleFor[seasoning.id as SpiceId] && (
             <div
               className="space-y-1.5 pt-2 pb-1 border-t border-dashed border-neutral-200"
               style={{ borderColor: `${seasoning.primaryColor}40` }}
             >
               <div className="flex justify-between text-[11px] font-medium text-neutral-800">
                 <span className="font-bold flex items-center gap-1.5" style={{ color: seasoning.primaryColor }}>
-                  <Flame className="h-3 w-3" style={{ color: seasoning.primaryColor }} /> Espessura do Contorno
+                  <Flame className="h-3 w-3" style={{ color: seasoning.primaryColor }} /> {PARAMETERS.lineWidth.uiLabel}
                 </span>
-                <span className="font-mono" style={{ color: seasoning.primaryColor }}>{(config.lineWidth ?? 2).toFixed(1)}</span>
+                <span className="font-mono" style={{ color: seasoning.primaryColor }}>
+                  {formatParamValue('lineWidth', config.lineWidth ?? PARAMETERS.lineWidth.defaults[seasoning.id as SpiceId])}
+                </span>
               </div>
               <input
                 type="range"
-                min={0.5}
-                max={6}
-                step={0.1}
-                value={config.lineWidth ?? 2}
+                min={PARAMETERS.lineWidth.min}
+                max={PARAMETERS.lineWidth.max}
+                step={PARAMETERS.lineWidth.step}
+                value={config.lineWidth ?? PARAMETERS.lineWidth.defaults[seasoning.id as SpiceId]}
                 onChange={(e) => updateParam('lineWidth', parseFloat(e.target.value))}
                 className="w-full h-1 rounded-full cursor-pointer"
                 style={{ accentColor: seasoning.primaryColor }}

@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Seasoning, PatternConfig, PARAMETER_PRESETS } from '../types';
+import { Seasoning, PatternConfig } from '../types';
+import { PARAMETERS, SpiceId } from '../engine/parameters';
 
 // Deterministic pseudo-random number generator to prevent flickering patterns
 export class SeededRandom {
@@ -2556,15 +2557,22 @@ export function getCuratedConfigForSeasoning(
   const seed = customSeed ?? Math.floor(Math.random() * 100000) + 1;
   const rng = new SeededRandom(seasoningId + '_curation_v4_' + seed);
 
-  // Get per-spice parameter presets (realistic microscopic magnification)
-  const preset = PARAMETER_PRESETS[seasoningId] || PARAMETER_PRESETS['sal'];
+  // Resolve curated defaults from the canonical PARAMETERS registry.
+  // Fallback to 'sal' if id unrecognized (defensive — should never happen).
+  const spice = (PARAMETERS.zoom.defaults as Record<string, number>)[seasoningId] !== undefined
+    ? (seasoningId as SpiceId)
+    : 'sal';
+  const dZoom = PARAMETERS.zoom.defaults[spice];
+  const dDensity = PARAMETERS.density.defaults[spice];
+  const dLineWidth = PARAMETERS.lineWidth.defaults[spice];
+  const dRoundedness = PARAMETERS.voronoiRoundedness.defaults[spice];
 
-  // Sample parameters within calibrated ranges for each spice
-  const zoom = Math.round(rng.range(preset.zoom.default * 0.95, preset.zoom.default * 1.05));
-  const density = Math.round(rng.range(preset.density.default * 0.85, preset.density.default * 1.15));
+  // Sample parameters within calibrated ranges for each spice (same RNG envelope as before)
+  const zoom = Math.round(rng.range(dZoom * 0.95, dZoom * 1.05));
+  const density = Math.round(rng.range(dDensity * 0.85, dDensity * 1.15));
   const rotation = 0; // Rotation now only affects internal anisotropy, not visual rotation
-  const lineWidth = preset.lineWidth.default + rng.range(-0.2, 0.2);
-  const voronoiRoundedness = Math.round(rng.range(preset.voronoiRoundedness.default * 0.9, preset.voronoiRoundedness.default * 1.1));
+  const lineWidth = dLineWidth + rng.range(-0.2, 0.2);
+  const voronoiRoundedness = Math.round(rng.range(dRoundedness * 0.9, dRoundedness * 1.1));
 
   return {
     zoom,

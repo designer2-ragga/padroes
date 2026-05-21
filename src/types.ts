@@ -33,59 +33,8 @@ export interface MockupPreset {
   description: string;
 }
 
-// Per-spice parameter presets (realistic microscopic scaling)
-export interface ParameterPreset {
-  zoom: { default: number; min: number; max: number };
-  density: { default: number; min: number; max: number };
-  rotation: { default: number; min: number; max: number };
-  lineWidth: { default: number; min: number; max: number };
-  voronoiRoundedness: { default: number; min: number; max: number };
-}
-
-export const PARAMETER_PRESETS: Record<string, ParameterPreset> = {
-  sal: {
-    zoom: { default: 120, min: 40, max: 1200 },
-    density: { default: 18, min: 2, max: 40 },
-    rotation: { default: 0, min: 0, max: 180 },
-    lineWidth: { default: 1.6, min: 0.5, max: 6 },
-    voronoiRoundedness: { default: 0, min: 0, max: 100 }, // crystalline
-  },
-  louro: {
-    zoom: { default: 220, min: 40, max: 1200 },
-    density: { default: 9, min: 2, max: 40 },
-    rotation: { default: 0, min: 0, max: 180 },
-    lineWidth: { default: 2.2, min: 0.5, max: 6 },
-    voronoiRoundedness: { default: 44, min: 0, max: 100 },
-  },
-  alho: {
-    zoom: { default: 180, min: 40, max: 1200 },
-    density: { default: 14, min: 2, max: 40 },
-    rotation: { default: 0, min: 0, max: 180 },
-    lineWidth: { default: 1.4, min: 0.5, max: 6 },
-    voronoiRoundedness: { default: 28, min: 0, max: 100 },
-  },
-  pimenta: {
-    zoom: { default: 340, min: 40, max: 1200 },
-    density: { default: 22, min: 2, max: 40 },
-    rotation: { default: 0, min: 0, max: 180 },
-    lineWidth: { default: 1.8, min: 0.5, max: 6 },
-    voronoiRoundedness: { default: 52, min: 0, max: 100 },
-  },
-  manjericao: {
-    zoom: { default: 260, min: 40, max: 1200 },
-    density: { default: 16, min: 2, max: 40 },
-    rotation: { default: 0, min: 0, max: 180 },
-    lineWidth: { default: 1.5, min: 0.5, max: 6 },
-    voronoiRoundedness: { default: 40, min: 0, max: 100 },
-  },
-  oregano: {
-    zoom: { default: 140, min: 40, max: 1200 },
-    density: { default: 28, min: 2, max: 40 },
-    rotation: { default: 0, min: 0, max: 180 },
-    lineWidth: { default: 1.3, min: 0.5, max: 6 },
-    voronoiRoundedness: { default: 35, min: 0, max: 100 },
-  },
-};
+// NOTE: per-spice parameter presets now live in src/engine/parameters.ts (PARAMETERS registry).
+// types.ts is type-only and brand-only.
 
 export const TEMPEROS_RAGGA: Seasoning[] = [
   {
