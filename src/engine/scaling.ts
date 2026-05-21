@@ -78,32 +78,41 @@ export function zoomFactor(zoom: number, mode: ZoomMode): number {
  * for a given viewport, using a spice-specific calibration factor.
  *
  * The semantics: "density" means "structures per square reference viewport"
- * at zoom=100. Higher zoom values can OPTIONALLY reduce the count for
- * spices that interpret zoom as "fewer/larger structures" (controlled by
- * the zoomReduces flag).
+ * at zoom=100. Higher zoom values can OPTIONALLY reduce the count, with
+ * VARIABLE STRENGTH per layer/spice — required for multi-layer spices like
+ * Manjericão where macro features (trichomes, membranes) should disappear
+ * faster than substrate features (grains, micro-particles).
  *
  * @param density        slider value, 2–40
  * @param viewportArea   actual canvas area in px² (W * H)
- * @param spiceFactor    per-spice calibration multiplier (see SPICE_DENSITY_FACTORS).
- *                       Higher = more structures per density unit.
- * @param zoom           current zoom value (used only if zoomReduces=true)
- * @param zoomReduces    if true, count decreases as zoom increases (1/zm).
- *                       Matches the "more zoom = fewer/larger structures"
- *                       spec for Voronoi-based spices. Default false.
+ * @param spiceFactor    per-spice calibration multiplier (see SPICE_DENSITY_FACTORS)
+ * @param zoom           current zoom value
+ * @param zoomReduces    Controls how count responds to zoom:
+ *                         false (default) | 0  → no reduction with zoom
+ *                         true             | 1  → linear reduction (count × 100/zoom)
+ *                         0 < n < 1            → mild reduction (gentler than linear)
+ *                         n > 1                → strong reduction (faster than linear)
+ *                       Voronoi spices use 1.0 (matches old behavior).
+ *                       Manjericão layers use 0..1.5 depending on optical role.
  *
- * Reference viewport = 1200×1200 (the standard canvas). For smaller
- * viewports the count scales proportionally.
+ * Reference viewport = 1200×1200. For smaller viewports the count scales
+ * proportionally via areaScale.
  */
 export function targetCount(
   density: number,
   viewportArea: number,
   spiceFactor: number,
   zoom: number = 100,
-  zoomReduces: boolean = false
+  zoomReduces: boolean | number = false
 ): number {
   const REFERENCE_AREA = 1200 * 1200;
   const areaScale = viewportArea / REFERENCE_AREA;
-  const zoomScale = zoomReduces ? (ZOOM_BASE / Math.max(40, zoom)) : 1;
+  // Normalize boolean → number for unified math.
+  // false → 0 (no reduction); true → 1.0 (linear reduction, preserves Voronoi callsites).
+  const strength = typeof zoomReduces === 'boolean' ? (zoomReduces ? 1 : 0) : zoomReduces;
+  const zoomScale = strength === 0
+    ? 1
+    : Math.pow(ZOOM_BASE / Math.max(40, zoom), strength);
   return Math.max(1, Math.round(density * spiceFactor * areaScale * zoomScale));
 }
 

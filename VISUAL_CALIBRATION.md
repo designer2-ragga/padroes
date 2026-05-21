@@ -133,7 +133,129 @@ calibration/
   louro-300x.png   (3×3 grid, 9 cells — curated default range)
   louro-800x.png   (3×3 grid, byte-identical to 300x)
   louro-1200x.png  (3×3 grid, byte-identical to 300x)
+
+  manjericao-100x.png   (wide field, all 5 layers densely visible)
+  manjericao-300x.png   (curated default — clear hierarchy)
+  manjericao-800x.png   (macro features fewer/larger, substrate still dense)
+  manjericao-1200x.png  (high mag — few large cells, dense grain noise)
 ```
 
 To regenerate after future renderer changes: re-run the eval loop in
 the preview app + `node scripts/decode-calibration.cjs <dump-path>`.
+
+---
+
+## Manjericão — multi-layer reference
+
+Captured at: `density=16`, `lineWidth=1.5`, `voronoiRoundedness=40`
+(unused — slider hidden), `rotation=0`, `themeMode=light`, `seed=42`.
+
+**Why Manjericão's calibration is different:** Manjericão has 5 distinct
+perceptual layers, each playing a different optical role. Real microscopy
+doesn't scale every feature uniformly with magnification — macro features
+(whole-cell membranes, glandular trichomes) disappear faster than
+substrate features (chloroplast grains, suspended particles). This is
+encoded in the per-layer `(countFactor, zoomReduceStrength, sizeMode)`
+triplet inside `generateBasilLayout`:
+
+| Layer | countFactor | zoomReduceStrength | sizeMode | Optical role |
+|---|---|---|---|---|
+| Membranes  | 2.11 | 1.0  (linear)    | `sqrt`            | macro |
+| Chloroplasts | 5.13 | 0.7  (gentle)  | `sqrt`            | mid |
+| Grains     | 45.0 | 0    (none)      | `sqrt`            | substrate |
+| Trichomes  | 1.96 | 1.2  (strong)    | length:`sqrt`, thickness:near-absolute | macro |
+| Micro      | 55.0 | 0    (none)      | `absolute`        | substrate noise |
+
+Predicted counts at density=16:
+
+| Layer | 100x | 260x (curated) | 800x | 1200x |
+|---|---:|---:|---:|---:|
+| Membranes  | 34 | 13 | 4 | 3 |
+| Chloroplasts | 82 | 40 | 18 | 13 |
+| Grains     | 720 | 720 | 720 | 720 |
+| Trichomes  | 31 | 10 | 3 | 2 |
+| Micro      | 880 | 880 | 880 | 880 |
+
+---
+
+### Manjericão 100x  —  "wide tissue field"
+
+![manjericao-100x](calibration/manjericao-100x.png)
+
+| Aspect | Reading |
+|---|---|
+| Membrane outlines | ~34 — many overlapping, network-like |
+| Chloroplast blobs | ~82 — dense, filling much of the field |
+| Trichome filaments | ~31 — visible as multiple bead-strings across canvas |
+| Grain density | ~720 — substrate noise field visible everywhere |
+| Micro-particles | ~880 — extra-fine speckle underneath |
+| Layer separation | hard to read — too many features competing |
+| Vibe | "wide view of healthy basil leaf tissue" — every layer present, slight noise |
+| Use case | overview pattern, large-format prints |
+
+---
+
+### Manjericão 300x  —  "curated default range"
+
+![manjericao-300x](calibration/manjericao-300x.png)
+
+| Aspect | Reading |
+|---|---|
+| Membrane outlines | ~11 — clearly separated, identifiable as ghost cell walls |
+| Chloroplast blobs | ~37 — mid-size cluster cells, focused upper-right region |
+| Trichome filaments | ~8 — readable, dotted curves |
+| Grain density | ~720 (substrate stays constant) |
+| Micro-particles | ~880 |
+| Layer separation | **excellent** — each layer reads as its own role |
+| Vibe | "standard chloroplast microscopy view" — the design target |
+| Use case | identity tiles, social posts, brand surfaces |
+
+---
+
+### Manjericão 800x  —  "macro features fade"
+
+![manjericao-800x](calibration/manjericao-800x.png)
+
+| Aspect | Reading |
+|---|---|
+| Membrane outlines | ~4 — only a few, but proportionally larger (sqrt growth) |
+| Chloroplast blobs | ~18 — bigger and more spatially separate |
+| Trichome filaments | ~3 — fewer, but each one more legible |
+| Grain density | ~720 (substrate unchanged in count, ~1.7× larger per grain) |
+| Micro-particles | ~880 (still tiny, still abundant) |
+| Layer separation | **very good** — macro/mid/substrate distinct |
+| Vibe | "tissue close-up, single cell neighborhood" |
+| Use case | curated detail crops, hero compositions |
+
+---
+
+### Manjericão 1200x  —  "extreme magnification"
+
+![manjericao-1200x](calibration/manjericao-1200x.png)
+
+| Aspect | Reading |
+|---|---|
+| Membrane outlines | ~3 — only the edges of large cells visible, going off-canvas |
+| Chloroplast blobs | ~13 — big chunky clusters dominate |
+| Trichome filaments | ~2 — barely-resolved, smaller proportionally |
+| Grain density | ~720 (~2.5× larger grain dots — now reads as "individual chloroplast granules") |
+| Micro-particles | ~880 (still tiny — pixel-level noise) |
+| Layer separation | clear — fewer macro features → mid features take focus |
+| Vibe | "extreme microscope objective — focused on a single cell" |
+| Use case | dramatic close-up frames, motion-graphic poses |
+
+---
+
+## Why this works perceptually
+
+The zoom slider on Manjericão now feels like changing microscope objectives, not like uniform CSS scaling:
+
+| Behavior | Why it matters |
+|---|---|
+| Membranes disappear linearly | Macro structures fade out at high mag — you're focusing on one cell, not the whole tissue |
+| Chloroplasts fade gently | Mid features stay long enough that you still see them at high mag, just bigger |
+| Grains stay constant in count | Substrate noise is a property of the tissue itself, not a function of zoom — it stays |
+| Trichomes fade strongly | Trichomes are macroscopic hairs — at extreme mag you see at most one, partially |
+| Micro-particles never resize | Pixel-level background noise should remain pixel-level — never "scaled up to giant dots" |
+
+**Pixel parity:** intentionally NOT byte-identical with the prior implementation. The RNG seed prefix was bumped from `basil_layout_v2_` to `basil_layout_v3_` to reflect that the layout era changed. Per the user's directive — "Não precisa byte-identical absoluto se a mudança melhorar coerência do zoom; mas: mesma leitura visual, mesma hierarquia, mesma assinatura morfológica" — the new output preserves the visual character (5 layers, biomass clustering, multi-scale shapes) while introducing optical zoom semantics.

@@ -5,7 +5,7 @@
 
 import { Seasoning, PatternConfig } from '../types';
 import { PARAMETERS, SpiceId } from '../engine/parameters';
-import { strokeWidth, targetCount, SPICE_DENSITY_FACTORS } from '../engine/scaling';
+import { strokeWidth, targetCount, SPICE_DENSITY_FACTORS, scaleAtZoom } from '../engine/scaling';
 import {
   clipPolygon,
   isPointInPolygon,
@@ -1583,26 +1583,40 @@ interface BasilLayout {
 
 function generateBasilLayout(W: number, H: number, config: PatternConfig): BasilLayout {
   const seed = Math.round(config.layoutSeed ?? 1);
-  const rng = new SeededRandom('basil_layout_v2_' + seed);
+  const rng = new SeededRandom('basil_layout_v3_' + seed);
   const density = config.density ?? 16;
-  // sqrt-scaling: prevents shape sizes from exploding at high zoom (1200x)
-  // while still growing organically with magnification
-  const zm = (config.zoom ?? 100) / 100;
-  const zScale = Math.sqrt(Math.max(0.4, zm));
+  const zoom = config.zoom ?? 100;
   const minDim = Math.min(W, H);
+  const viewportArea = W * H;
 
-  // Step 1: biomass density centers (multi-scale uneven tissue distribution)
+  // ─── Per-layer optical scaling ─────────────────────────────────────────────
+  //
+  // Real microscopy doesn't scale all features equally as you change objective:
+  //   - Macro features (whole cell walls, trichome hairs) → fewer, larger
+  //   - Mid features (chloroplast clusters)              → fewer, larger
+  //   - Substrate features (grains, suspended particles) → density stays high
+  //                                                        size grows mildly
+  //   - Filament thickness                               → nearly constant
+  //
+  // Each layer gets its own (countFactor, countZoomReduceStrength, sizeMode).
+  // Factors calibrated so total counts at the curated default (zoom=260,
+  // density=16) approximately match the prior implementation, preserving
+  // perceptual identity at the default config. Below 260x more structures
+  // appear; above 260x macro structures fade while substrate stays.
+
+  // Step 1: biomass density centers — unchanged (procedural detail, not a
+  // perceptual layer; their count drives WHERE structures land, not what
+  // the viewer counts).
   const nClusters = 4 + Math.floor(rng.range(0, 5));
   const clusters: { cx: number; cy: number; r: number }[] = [];
   for (let i = 0; i < nClusters; i++) {
     clusters.push({
-      cx: rng.range(-0.1, 1.1) * W, // allow off-canvas to break tile pattern
+      cx: rng.range(-0.1, 1.1) * W,
       cy: rng.range(-0.1, 1.1) * H,
       r: rng.range(0.15, 0.42) * minDim,
     });
   }
 
-  // Helper: place a point biased toward a cluster (Gaussian-ish denser core)
   const samplePoint = (clusterBias: number): { x: number; y: number } => {
     if (rng.range(0, 1) < clusterBias) {
       const c = clusters[Math.floor(rng.range(0, clusters.length))];
@@ -1613,18 +1627,20 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
     return { x: rng.range(0, W), y: rng.range(0, H) };
   };
 
-  // Step 2: amorphous membrane outlines (thin stroked ghosts — many overlapping)
-  const nMembranes = 10 + Math.floor(rng.range(0, density * 0.6));
+  // Layer 2: MEMBRANES — macro feature, linear count reduction, sqrt size growth
+  // factor=2.11, strength=1.0 → ~13 at curated default; 34 at 100x; 3 at 1200x
+  const nMembranes = targetCount(density, viewportArea, 2.11, zoom, 1.0);
+  const memSizeScale = scaleAtZoom(1, zoom, 'sqrt');
   const membranes: BasilLayout['membranes'] = [];
   for (let i = 0; i < nMembranes; i++) {
     const pos = samplePoint(0.55);
-    // Multi-scale: 30% tiny, 50% medium, 20% large — like real cell walls
+    // Multi-scale: 30% tiny, 50% medium, 20% large
     const sizeRoll = rng.range(0, 1);
     let sizeBase: number;
     if (sizeRoll < 0.30) sizeBase = rng.range(0.035, 0.060);
     else if (sizeRoll < 0.80) sizeBase = rng.range(0.060, 0.110);
     else sizeBase = rng.range(0.110, 0.180);
-    const baseR = sizeBase * minDim * zScale;
+    const baseR = sizeBase * minDim * memSizeScale;
     membranes.push({
       cx: pos.x,
       cy: pos.y,
@@ -1635,17 +1651,19 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
     });
   }
 
-  // Step 3: medium chloroplast cluster blobs (filled, biased to dense tissue)
-  const nChloroplasts = Math.round(density * 2.5);
+  // Layer 3: CHLOROPLAST CLUSTERS — mid feature, gentle count reduction (strength 0.7),
+  //                                 sqrt size growth
+  // factor=5.13, strength=0.7 → ~40 at curated default; 82 at 100x; 13 at 1200x
+  const nChloroplasts = targetCount(density, viewportArea, 5.13, zoom, 0.7);
+  const chSizeScale = scaleAtZoom(1, zoom, 'sqrt');
   const chloroplasts: BasilLayout['chloroplasts'] = [];
   for (let i = 0; i < nChloroplasts; i++) {
     const pos = samplePoint(0.82);
-    // Mixed sizes: mostly small, some medium, rare larger
     const sizeRoll = rng.range(0, 1);
     let baseR: number;
-    if (sizeRoll < 0.60) baseR = rng.range(0.012, 0.025) * minDim * zScale;
-    else if (sizeRoll < 0.92) baseR = rng.range(0.025, 0.045) * minDim * zScale;
-    else baseR = rng.range(0.045, 0.075) * minDim * zScale;
+    if (sizeRoll < 0.60) baseR = rng.range(0.012, 0.025) * minDim * chSizeScale;
+    else if (sizeRoll < 0.92) baseR = rng.range(0.025, 0.045) * minDim * chSizeScale;
+    else baseR = rng.range(0.045, 0.075) * minDim * chSizeScale;
     chloroplasts.push({
       x: pos.x,
       y: pos.y,
@@ -1656,28 +1674,34 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
     });
   }
 
-  // Step 4: small chloroplast grains (dense filled dots heavily biased to clusters)
-  const nGrains = Math.round(density * 45);
+  // Layer 4: GRAINS — substrate, no count reduction (always plentiful), sqrt size growth
+  // factor=45.0, strength=0 → 720 at any zoom (density=16)
+  const nGrains = targetCount(density, viewportArea, 45.0, zoom, 0);
+  const grainSizeScale = scaleAtZoom(1, zoom, 'sqrt');
   const grains: BasilLayout['grains'] = [];
   for (let i = 0; i < nGrains; i++) {
     const pos = samplePoint(0.90);
     grains.push({
       x: pos.x,
       y: pos.y,
-      r: rng.range(1.2, 4.0) * zScale,
+      r: rng.range(1.2, 4.0) * grainSizeScale,
       seed: 'basil_g_' + i + '_' + seed,
     });
   }
 
-  // Step 5: trichome filaments (curved organic hairs, internal anisotropy bias)
-  const nTrichomes = 5 + Math.floor(density / 3);
+  // Layer 5: TRICHOMES — strong count reduction (strength 1.2, faster than linear),
+  //                      length grows with sqrt, thickness nearly absolute
+  // factor=1.96, strength=1.2 → ~10 at curated default; 31 at 100x; 2 at 1200x
+  const nTrichomes = targetCount(density, viewportArea, 1.96, zoom, 1.2);
+  const triLengthScale = scaleAtZoom(1, zoom, 'sqrt');
+  // Thickness: "almost absolute" — start with sqrt, attenuate to ~0.3 of its growth
+  //   At 100x: 1.0×;  at 260x: ~1.18× ; at 1200x: ~1.74×  (much less than full sqrt's 3.46×)
+  const triThickScale = 1 + (scaleAtZoom(1, zoom, 'sqrt') - 1) * 0.3;
   const trichomes: BasilLayout['trichomes'] = [];
-  // Rotation = directional bias for filament flow (0–180° axis, not canvas rotation)
   const rotBase = ((config.rotation ?? 0) * Math.PI) / 180;
   for (let i = 0; i < nTrichomes; i++) {
     const start = samplePoint(0.55);
-    const len = rng.range(0.06, 0.22) * minDim * zScale;
-    // Bidirectional: 0–180° is an axis, so we flip half the trichomes
+    const len = rng.range(0.06, 0.22) * minDim * triLengthScale;
     const flip = rng.range(0, 1) < 0.5 ? 0 : Math.PI;
     const angle = rotBase + flip + rng.range(-0.7, 0.7);
     const endX = start.x + Math.cos(angle) * len;
@@ -1688,20 +1712,23 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
       startY: start.y,
       endX, endY,
       bendAmount,
-      thickness: rng.range(1.8, 4.5) * zScale,
+      thickness: rng.range(1.8, 4.5) * triThickScale,
       seed: 'basil_t_' + i + '_' + seed,
     });
   }
 
-  // Step 6: micro suspended particles (background biological noise, dense)
-  const nMicro = Math.round(density * 55);
+  // Layer 6: MICRO-PARTICLES — background noise, no count reduction, absolute size
+  // factor=55, strength=0 → 880 at any zoom (density=16)
+  // Size stays absolute: tiny dots are pixel-resolution markers; growing them
+  // would turn the background into noise dots rather than the intended "grain"
+  const nMicro = targetCount(density, viewportArea, 55.0, zoom, 0);
   const microParticles: BasilLayout['microParticles'] = [];
   for (let i = 0; i < nMicro; i++) {
     const pos = samplePoint(0.4);
     microParticles.push({
       x: pos.x,
       y: pos.y,
-      r: rng.range(0.30, 1.0) * zScale,
+      r: rng.range(0.30, 1.0), // absolute pixel size
     });
   }
 
