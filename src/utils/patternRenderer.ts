@@ -676,7 +676,7 @@ export function renderLouroMicroscopeGrid(
   // Higher zoom → fewer/larger cells (zoomReduces=true) → microscopy intuition.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.louro, config.zoom ?? 100, true);
-  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('louro_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
@@ -766,7 +766,7 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
   // Mirrors canvas density semantics exactly — same factor, same formula.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, width * height, SPICE_DENSITY_FACTORS.louro, config.zoom ?? 100, true);
-  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('louro_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
@@ -939,7 +939,7 @@ export function renderGarlicMicroscopeGrid(
   // SPICE_DENSITY_FACTORS.alho = 1.16 → M=3 at curated default (zoom=180, density=14).
   const density = config.density ?? 40;
   const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.alho, config.zoom ?? 100, true);
-  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('garlic_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
@@ -1032,7 +1032,7 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   // Mirrors canvas exactly — see renderGarlicMicroscopeGrid above.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, width * height, SPICE_DENSITY_FACTORS.alho, config.zoom ?? 100, true);
-  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('garlic_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
@@ -1245,7 +1245,7 @@ export function renderPimentaMicroscopeGrid(
   // macro grid earlier prevents the canvas from drowning in tiny cells.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.pimenta, config.zoom ?? 100, true);
-  const M = Math.max(3, Math.min(11, Math.round(Math.sqrt(totalCount))));
+  const M = Math.max(2, Math.min(11, Math.round(Math.sqrt(totalCount))));
   const roundedness = config.voronoiRoundedness ?? 42;
   const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
 
@@ -2043,7 +2043,7 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
   // Mirrors canvas exactly — see renderPimentaMicroscopeGrid above.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.pimenta, config.zoom ?? 100, true);
-  const M = Math.max(3, Math.min(11, Math.round(Math.sqrt(totalCount))));
+  const M = Math.max(2, Math.min(11, Math.round(Math.sqrt(totalCount))));
   const roundedness = config.voronoiRoundedness ?? 42;
   const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
 

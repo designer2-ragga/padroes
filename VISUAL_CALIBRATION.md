@@ -63,32 +63,34 @@ Louro was chosen as the pilot because:
 
 ---
 
-### 800x  —  "macro view, floor-capped"
+### 800x  —  "macro neighborhood" (floor relaxed)
 
 ![louro-800x](calibration/louro-800x.png)
 
 | Aspect | Reading |
 |---|---|
-| Cells per side (M) | **3** (clamped — formula wants 2, floor forces 3) |
-| Cells filling viewport | identical to 300x — **byte-identical PNG** |
-| Apparent line weight | unchanged from 300x |
-| Vibe | should be "high mag — fewer larger cells" but the M=3 floor hides this |
-| ⚠️ Calibration note | **slider has no visual effect between ~250x and 1200x** — the floor `Math.max(3, ...)` clamps every value to M=3. This is preserved from the legacy formula for parity, but represents dead range in the slider. |
+| Cells per side (M) | **2** (formula wants 2, floor=2 accepts) |
+| Cells filling viewport | 4 cells visible (2×2 grid with seamless wrap) |
+| Avg cell width | ~600 px (half of canvas) |
+| Apparent line weight | 2.2 px absolute |
+| Vibe | "high mag — looking at one cell neighborhood, ~4 cells around it" |
+| Use case | macro hero frames, single-cell-focus tiles |
 
-**Design decision pending:** consider lowering the M floor from 3 to 2 (4 cells total) in a future commit to give 800x+ its own distinct character. Documenting here so the choice is intentional, not accidental.
+**Floor change history:** previously this stop was clamped to M=3 (identical to 300x). The floor was relaxed from 3 → 2 to give 800x+ its own distinct character. The slider now has 3 visual states across the range (M=4 at 100x → M=3 at 300x → M=2 at 800x+).
 
 ---
 
-### 1200x  —  "absolute close-up, also floor-capped"
+### 1200x  —  "absolute close-up"
 
 ![louro-1200x](calibration/louro-1200x.png)
 
 | Aspect | Reading |
 |---|---|
-| Cells per side (M) | **3** (clamped — formula wants 1, floor forces 3) |
-| PNG bytes | identical to 300x and 800x |
-| ⚠️ Calibration note | same floor issue — slider value distinct, output identical |
-| Apparent line weight | 2.2 px (this is where the OLD code would have rendered ~26 px strokes; the stroke fix is most visible here) |
+| Cells per side (M) | **2** (formula wants 1, floor=2 forces 2) |
+| PNG bytes | identical to 800x (both M=2) — slider still has a small dead range above ~600x |
+| Apparent line weight | 2.2 px absolute |
+| Vibe | "extreme objective — only a few cells visible, each big and crisp" |
+| ⚠️ Calibration note | the M=1 case (single cell = whole canvas) is rejected as too degenerate. M=2 is the practical minimum. |
 
 **Before the stroke fix:** at 1200x the legacy formula computed `lineWidth × 1.5 × (1200/100) = 39.6 px` (clamped to a wallthick of ~40 px). Cells became thick orange paint regions with tiny cream interiors. **After the fix:** crisp 2.2 px lines, every value of zoom looks like microscopy.
 
@@ -105,7 +107,7 @@ These observations promote to engine-wide rules — Alho and Pimenta calibration
 | **R3 — stroke is absolute pixels** | The same `lineWidth=2.2` value produces a 2.2 px line at every zoom level. No multiplication by `zoom/100`. |
 | **R4 — theme is pure inversion** | Light↔dark swaps `bg ↔ shape` colors only. Stroke width, geometry, count are identical between themes. |
 | **R5 — anisotropy is intrinsic** | The 1.6× elongation is a Louro identity constant. `rotation` rotates the axis, but never the magnitude. |
-| **R6 — M floor = 3** | All Voronoi spices clamp to a minimum of 3 cells per side, producing a 3×3 grid. Below this the pattern is unreadable. (Possibly relaxable — see 800x note above.) |
+| **R6 — M floor = 2** | All Voronoi spices clamp to a minimum of 2 cells per side, producing a 2×2 grid. M=1 (single cell) is rejected as degenerate. Was previously 3; relaxed to give the 800x+ zoom range distinct character. |
 | **R7 — M ceiling = 22** | Above 484 total cells (M=22), the canvas becomes a fine mesh — visual identity collapses into "static noise" rather than "cellular tissue". |
 
 ---
