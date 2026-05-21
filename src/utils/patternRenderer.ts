@@ -47,77 +47,7 @@ interface Particle {
   extraValue: number;
 }
 
-// Generate deterministic particles for a specific seasoning and size
-export function generateParticles(seasoningId: string, count: number, width: number, height: number, layoutSeed: number = 1): Particle[] {
-  const rng = new SeededRandom(seasoningId + '_organic_v4_' + Math.round(layoutSeed));
-  const particles: Particle[] = [];
 
-  for (let i = 0; i < count; i++) {
-    particles.push({
-      x: rng.range(0, width),
-      y: rng.range(0, height),
-      size: rng.range(16, 42),
-      rotation: rng.range(0, Math.PI * 2),
-      opacity: rng.range(0.8, 1.0), // High opacity like the flat image
-      colorShift: rng.range(0, 1),
-      extraValue: rng.range(0, 1),
-    });
-  }
-
-  return particles;
-}
-
-// Draw a procedurally smooth closed organic blob/pebble using mid-point quadratic curves
-function pathOrganicBlob(
-  ctx: CanvasRenderingContext2D,
-  radiusX: number,
-  radiusY: number,
-  pointsCount: number,
-  seedStr: string,
-  dentFactor: number = 0.15
-) {
-  const rng = new SeededRandom(seedStr);
-  const angles: number[] = [];
-  const radii: number[] = [];
-
-  for (let i = 0; i < pointsCount; i++) {
-    const angle = (i * Math.PI * 2) / pointsCount;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    
-    // Ellipse radius equation base
-    const baseR = Math.sqrt(1 / ((cos * cos) / (radiusX * radiusX) + (sin * sin) / (radiusY * radiusY)));
-    
-    // Apply organic indent waving
-    const wave = rng.range(1 - dentFactor, 1 + dentFactor);
-    radii.push(baseR * wave);
-    angles.push(angle);
-  }
-
-  // Generate coordinate array
-  const pts: { x: number; y: number }[] = [];
-  for (let i = 0; i < pointsCount; i++) {
-    pts.push({
-      x: radii[i] * Math.cos(angles[i]),
-      y: radii[i] * Math.sin(angles[i]),
-    });
-  }
-
-  // Trace with midpoints quadratic Bezier curves for perfect smoothness
-  ctx.beginPath();
-  const startPtX = (pts[pointsCount - 1].x + pts[0].x) / 2;
-  const startPtY = (pts[pointsCount - 1].y + pts[0].y) / 2;
-  ctx.moveTo(startPtX, startPtY);
-
-  for (let i = 0; i < pointsCount; i++) {
-    const curr = pts[i];
-    const next = pts[(i + 1) % pointsCount];
-    const midX = (curr.x + next.x) / 2;
-    const midY = (curr.y + next.y) / 2;
-    ctx.quadraticCurveTo(curr.x, curr.y, midX, midY);
-  }
-  ctx.closePath();
-}
 
 // Organic vacuole blob — replaces ctx.arc for garlic nuclei.
 // Consumes rng directly so canvas + SVG renderers stay in identical rng state.
@@ -194,26 +124,7 @@ function getThemeColors(seasoningId: string, isDark: boolean): { bg: string; fg:
   return isDark ? { bg: CREAM, fg: key } : { bg: key, fg: CREAM };
 }
 
-// Return the shape/particle color for the current theme
-function getParticleColor(seasoningId: string, _p: Particle, config: PatternConfig): string {
-  return getThemeColors(seasoningId, config.themeMode === 'dark').fg;
-}
 
-// Apply styling to shapes according to OKLCH tone modes, with per-particle color variation
-function applyFillAndStroke(
-  ctx: CanvasRenderingContext2D,
-  seasoningId: string,
-  p: Particle,
-  config: PatternConfig
-) {
-  const particleColor = getParticleColor(seasoningId, p, config);
-  ctx.fillStyle = particleColor;
-  ctx.strokeStyle = particleColor;
-  ctx.lineWidth = 0;
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 0;
-}
 
 
 // clipPolygon + isPointInPolygon now live in src/engine/voronoi.ts (shared with future migrations).
@@ -1816,74 +1727,8 @@ export function renderPatternTile(
     return;
   }
 
-
-  // Draw camera grain sensor noise overlay (orphan — slated for P7-B deletion).
-  // After the legacy particle dispatch was deleted in P7-A, this block has no
-  // remaining callers (every microscope-grid renderer handles its own visuals).
-  // Kept temporarily for the explicit per-commit cleanup the user requested.
-  if (config.noise > 0) {
-    const isDark = config.themeMode === 'dark';
-    ctx.save();
-    const noiseImg = ctx.createImageData(width, height);
-    const data = noiseImg.data;
-    const noiseStrength = config.noise * 0.22;
-    const noiseRng = new SeededRandom('grain_noise_' + seasoning.id + '_' + Math.round(config.layoutSeed ?? 1));
-
-    for (let i = 0; i < data.length; i += 4) {
-      const grain = noiseRng.next() * noiseStrength;
-      data[i] = isDark ? 0 : 255;
-      data[i + 1] = isDark ? 0 : 255;
-      data[i + 2] = isDark ? 0 : 255;
-      data[i + 3] = grain;
-    }
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = width;
-    tempCanvas.height = height;
-    tempCanvas.getContext('2d')?.putImageData(noiseImg, 0, 0);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(tempCanvas, 0, 0);
-    ctx.restore();
-  }
 }
 
-// Render composite Combined Mural containing all 6 seasonings in a patchwork
-export function renderCombinedMural(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  seasonings: Seasoning[],
-  config: PatternConfig
-) {
-  const patchW = width / 3;
-  const patchH = height / 2;
-
-  seasonings.forEach((seasoning, idx) => {
-    const col = idx % 3;
-    const row = Math.floor(idx / 3);
-    const startX = col * patchW;
-    const startY = row * patchH;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(startX, startY, patchW, patchH);
-    ctx.clip();
-
-    ctx.translate(startX, startY);
-
-    renderPatternTile(ctx, patchW, patchH, seasoning, {
-      ...config,
-      density: config.density * 0.5,
-      zoom: config.zoom * 0.95,
-    });
-
-    // Draw quadrant boundaries
-    ctx.strokeStyle = config.themeMode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, patchW, patchH);
-
-    ctx.restore();
-  });
-}
 // Generate Pimenta SVG — mirrors renderPimentaMicroscopeGrid exactly (same seeds, same Voronoi, same insetPolyPx)
 function generatePimentaSVGPatternString(config: PatternConfig, width: number, height: number): string {
   const isDark = config.themeMode === 'dark';
