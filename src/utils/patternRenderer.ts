@@ -37,18 +37,6 @@ export class SeededRandom {
   }
 }
 
-interface Particle {
-  x: number;
-  y: number;
-  size: number;
-  rotation: number;
-  opacity: number;
-  colorShift: number;
-  extraValue: number;
-}
-
-
-
 // Organic vacuole blob — replaces ctx.arc for garlic nuclei.
 // Consumes rng directly so canvas + SVG renderers stay in identical rng state.
 // n=7 points, dent=0.07 gives subtle biological wobble while preserving circular identity.
@@ -1919,7 +1907,6 @@ export function getCuratedConfigForSeasoning(
     zoom,
     density,
     rotation,
-    noise: 12,
     lineWidth,
     themeMode,
     voronoiRoundedness,

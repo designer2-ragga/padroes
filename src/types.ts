@@ -11,7 +11,6 @@ export interface Seasoning {
   description: string;
   primaryColor: string; // The specific brand colors provided by user
   secondaryColor: string; // Complementary color for high depth
-  particleType: 'crystal_cube' | 'extended_leaf_cell' | 'concentric_bulb_starch' | 'fiery_droplet_spike' | 'glandular_basil_hair' | 'oregano_pollen_pod';
   metaphor: string; // Explanation of why the condiment matches the department
 }
 
@@ -19,18 +18,10 @@ export interface PatternConfig {
   zoom: number;          // 40 to 1200 (x magnification)
   density: number;       // 2 to 40 (structures per viewport)
   rotation: number;      // 0 to 180 (degrees, internal anisotropy axis only)
-  noise: number;         // 0 to 100 (camera grain noise — Salt fallback path only, temporary until Sal rewrite)
   lineWidth: number;     // 0.5 to 6.0 (px, absolute pixel stroke thickness)
   themeMode: 'light' | 'dark';
   voronoiRoundedness: number;    // 0 to 100 (% of corner rounding for Voronoi cells, applied via cubic ease-in)
   layoutSeed: number;            // deterministic layout seed
-}
-
-export interface MockupPreset {
-  id: string;
-  name: string;
-  category: 'printing' | 'apparel' | 'digital' | 'packaging';
-  description: string;
 }
 
 // NOTE: per-spice parameter presets now live in src/engine/parameters.ts (PARAMETERS registry).
@@ -45,7 +36,6 @@ export const TEMPEROS_RAGGA: Seasoning[] = [
     description: 'Operação que sustenta o Grupo. Em tudo. Todo dia. Em toda mesa.',
     primaryColor: '#B81A20',
     secondaryColor: '#FF6B6B',
-    particleType: 'crystal_cube',
     metaphor: 'O sal é a base indispensável de qualquer prato. Ele realça todos os outros sabores e está presente em todas as fases da operação, sustentando o paladar e o negócio diariamente.'
   },
   {
@@ -56,7 +46,6 @@ export const TEMPEROS_RAGGA: Seasoning[] = [
     description: 'Perfuma a panela inteira sem aparecer. RH, Financeiro, Operações, TI, Treinamentos.',
     primaryColor: '#1E40AF',
     secondaryColor: '#60A5FA',
-    particleType: 'extended_leaf_cell',
     metaphor: 'Uma única folha de louro perfuma de forma contínua e discreta um guisado inteiro. Assim é a gestão e os bastidores corporativos — discreto, mas sua força aromatiza e viabiliza toda a estrutura.'
   },
   {
@@ -67,7 +56,6 @@ export const TEMPEROS_RAGGA: Seasoning[] = [
     description: 'Raiz, base, brasilidade. Primeira coisa a entrar na panela.',
     primaryColor: '#D4A010',
     secondaryColor: '#FBBF24',
-    particleType: 'concentric_bulb_starch',
     metaphor: 'O alho é a base de refogado mais tradicional da culinária brasileira. Ele representa os insumos brutos de qualidade, os fundamentos que entram primeiro e preparam o terreno para o sucesso.'
   },
   {
@@ -78,7 +66,6 @@ export const TEMPEROS_RAGGA: Seasoning[] = [
     description: 'Dá gás. Queima. Marca presença. A agência que acende o fogo.',
     primaryColor: '#E86820',
     secondaryColor: '#FDBA74',
-    particleType: 'fiery_droplet_spike',
     metaphor: 'A pimenta eleva a temperatura corporal, adiciona intensidade marcante e estimula os sentidos. Representa a força do marketing que gera atração, acelera vendas e estimula o crescimento.'
   },
   {
@@ -89,7 +76,6 @@ export const TEMPEROS_RAGGA: Seasoning[] = [
     description: 'Folha do bem, planta da casa. Pouco insumo, muito impacto.',
     primaryColor: '#8A2040',
     secondaryColor: '#EDA9BD',
-    particleType: 'glandular_basil_hair',
     metaphor: 'O manjericão cresce com facilidade no quintal de casa, espalhando frescor e vitalidade generosa. É o impacto socioambiental, a folha do bem que eleva a alma e traz sustentabilidade ao ecossistema.'
   },
   {
@@ -100,46 +86,7 @@ export const TEMPEROS_RAGGA: Seasoning[] = [
     description: 'O sabor não muda da matriz à unidade. Universal, seco, transportável.',
     primaryColor: '#93B629',
     secondaryColor: '#D4EC7F',
-    particleType: 'oregano_pollen_pod',
     metaphor: 'O orégano é a erva seca com alta estabilidade olfativa e gustativa, o tempero universal das pizzarias francesas e italianas. Simboliza a franquia: altamente transportável, idêntica na matriz e na filial, replicando o mesmo sucesso.'
   }
 ];
 
-export const MOCKUP_PRESETS: MockupPreset[] = [
-  {
-    id: 'menu',
-    name: 'Cardápio de Restaurante',
-    category: 'printing',
-    description: 'Design editorial do cardápio oficial, utilizando a estampa como moldura e detalhe de rodapé.'
-  },
-  {
-    id: 'stationery',
-    name: 'Papel Timbrado do Grupo',
-    category: 'printing',
-    description: 'Papelaria executiva minimalista, com a estampa aplicada num delicado relevo seco ou marca d\'água.'
-  },
-  {
-    id: 'packaging',
-    name: 'Embalagem de Condimentos',
-    category: 'packaging',
-    description: 'Tubos ou sacos kraft de especiarias estampando o padrão como grafismo identificador principal.'
-  },
-  {
-    id: 'apron',
-    name: 'Avental / Uniforme',
-    category: 'apparel',
-    description: 'Visualização da estampa aplicada nas alças, bolso central ou corpo inteiro do avental da brigada.'
-  },
-  {
-    id: 'screen',
-    name: 'Wallpaper Corporativo (Laptop)',
-    category: 'digital',
-    description: 'Aplicação elegante como fundo de tela de alta resolução para notebooks e tablets dos franqueados.'
-  },
-  {
-    id: 'combined-mural',
-    name: 'Mural de Entrada do Grupo',
-    category: 'printing',
-    description: 'Painel geométrico gigante combinando as 6 estampas em um mosaico unificado na sede administrativa.'
-  }
-];
