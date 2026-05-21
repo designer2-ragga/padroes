@@ -6,6 +6,13 @@
 import { Seasoning, PatternConfig } from '../types';
 import { PARAMETERS, SpiceId } from '../engine/parameters';
 import { strokeWidth } from '../engine/scaling';
+import {
+  clipPolygon,
+  isPointInPolygon,
+  polygonArea,
+  polygonCentroid,
+  createAnisotropicTransform,
+} from '../engine/voronoi';
 
 // Deterministic pseudo-random number generator to prevent flickering patterns
 export class SeededRandom {
@@ -492,57 +499,7 @@ function drawOreganoPod(
   ctx.restore();
 }
 
-// Polygon clipping helper for Voronoi (Sutherland-Hodgman)
-function clipPolygon(poly: [number, number][], s0: {x: number, y: number}, sj: {x: number, y: number}): [number, number][] {
-  const mx = (s0.x + sj.x) / 2;
-  const my = (s0.y + sj.y) / 2;
-  const nx = sj.x - s0.x;
-  const ny = sj.y - s0.y;
-
-  const result: [number, number][] = [];
-  if (poly.length === 0) return result;
-
-  for (let i = 0; i < poly.length; i++) {
-    const p1 = poly[i];
-    const p2 = poly[(i + 1) % poly.length];
-
-    const d1 = (p1[0] - mx) * nx + (p1[1] - my) * ny;
-    const d2 = (p2[0] - mx) * nx + (p2[1] - my) * ny;
-
-    if (d1 <= 0) {
-      if (d2 <= 0) {
-        result.push(p2);
-      } else {
-        const t = d1 / (d1 - d2);
-        const ix = p1[0] + t * (p2[0] - p1[0]);
-        const iy = p1[1] + t * (p2[1] - p1[1]);
-        result.push([ix, iy]);
-      }
-    } else {
-      if (d2 <= 0) {
-        const t = d1 / (d1 - d2);
-        const ix = p1[0] + t * (p2[0] - p1[0]);
-        const iy = p1[1] + t * (p2[1] - p1[1]);
-        result.push([ix, iy]);
-        result.push(p2);
-      }
-    }
-  }
-  return result;
-}
-
-// Ray-casting point in polygon helper
-function isPointInPolygon(px: number, py: number, poly: [number, number][]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i][0], yi = poly[i][1];
-    const xj = poly[j][0], yj = poly[j][1];
-    const intersect = ((yi > py) !== (yj > py)) &&
-        (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
+// clipPolygon + isPointInPolygon now live in src/engine/voronoi.ts (shared with future migrations).
 
 // Scale a polygon inward toward its centroid (factor < 1 shrinks, exposing background between cells)
 function insetPoly(poly: [number, number][], factor: number): [number, number][] {
@@ -743,34 +700,16 @@ export function renderLouroMicroscopeGrid(
   const roundedness = config.voronoiRoundedness ?? 35;
   const rotation = config.rotation ?? 0;
 
-  // Implement anisotropic Voronoi tessellation mapping.
-  // We compress coordinates in a rotated frame, compute standard Voronoi, and map back.
-  // This guarantees perfectly gapless cell-membrane adjacency with beautiful biological directional tension.
-  const alpha = (rotation * Math.PI) / 180;
-  const cos = Math.cos(alpha);
-  const sin = Math.sin(alpha);
-  const stretch = 1.6; // Cellular elongation factor
-
-  const toTransformed = (x: number, y: number) => {
-    const rx = x * cos + y * sin;
-    const ry = -x * sin + y * cos;
-    return { x: rx / stretch, y: ry };
-  };
-
-  const fromTransformed = (xt: number, yt: number) => {
-    const xs = xt * stretch;
-    const ys = yt;
-    const rx = xs * cos - ys * sin;
-    const ry = xs * sin + ys * cos;
-    return [rx, ry] as [number, number];
-  };
+  // Anisotropic Voronoi: compute in deformed space, then map back to canvas.
+  // Cellular elongation factor 1.6 = visible directional tension along the rotation axis.
+  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.6, rotation);
 
   // Draw cells over an extended grid area to allow seamless wrapping
   for (let gi = -4; gi <= M + 3; gi++) {
     for (let gj = -4; gj <= M + 3; gj++) {
       const s0_orig = getSeed(gi, gj);
       const s0_t = toTransformed(s0_orig.x, s0_orig.y);
-      
+
       let poly: [number, number][] = [
         [s0_t.x - W * 3.0, s0_t.y - H * 3.0],
         [s0_t.x + W * 3.0, s0_t.y - H * 3.0],
@@ -850,24 +789,8 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
   const wallWidth = strokeWidth(config.lineWidth || 2).toFixed(1); // absolute pixels, never scales with zoom
   const roundedness = config.voronoiRoundedness ?? 35;
 
-  const alpha = (rotation * Math.PI) / 180;
-  const cos = Math.cos(alpha);
-  const sin = Math.sin(alpha);
-  const stretch = 1.6; // Elongation factor matching standard canvas renderer
-
-  const toTransformed = (x: number, y: number) => {
-    const rx = x * cos + y * sin;
-    const ry = -x * sin + y * cos;
-    return { x: rx / stretch, y: ry };
-  };
-
-  const fromTransformed = (xt: number, yt: number) => {
-    const xs = xt * stretch;
-    const ys = yt;
-    const rx = xs * cos - ys * sin;
-    const ry = xs * sin + ys * cos;
-    return [rx, ry] as [number, number];
-  };
+  // Mirror the canvas anisotropy exactly (stretch 1.6).
+  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.6, rotation);
 
   for (let gi = -4; gi <= M + 3; gi++) {
     for (let gj = -4; gj <= M + 3; gj++) {
@@ -909,30 +832,9 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
 
 // Polygon centroid helper
 function getPolygonCentroid(poly: [number, number][]): { x: number; y: number } {
-  let area = 0;
-  let cx = 0;
-  let cy = 0;
-  const n = poly.length;
-  for (let i = 0; i < n; i++) {
-    const p1 = poly[i];
-    const p2 = poly[(i + 1) % n];
-    const factor = p1[0] * p2[1] - p2[0] * p1[1];
-    area += factor;
-    cx += (p1[0] + p2[0]) * factor;
-    cy += (p1[1] + p2[1]) * factor;
-  }
-  area = area / 2;
-  if (Math.abs(area) < 0.01) {
-    let sx = 0, sy = 0;
-    for (const p of poly) {
-      sx += p[0];
-      sy += p[1];
-    }
-    return { x: sx / n, y: sy / n };
-  }
-  cx = cx / (6 * area);
-  cy = cy / (6 * area);
-  return { x: cx, y: cy };
+  // Thin local alias preserved for now to keep call sites stable; canonical
+  // implementation lives in src/engine/voronoi.ts as polygonCentroid.
+  return polygonCentroid(poly);
 }
 
 // Draw mitosis nucleus inside a cell
@@ -1054,24 +956,8 @@ export function renderGarlicMicroscopeGrid(
   const roundedness = config.voronoiRoundedness ?? 28;
   const rotation = config.rotation ?? 0;
 
-  const alpha = (rotation * Math.PI) / 180;
-  const cos = Math.cos(alpha);
-  const sin = Math.sin(alpha);
-  const stretch = 1.35;
-
-  const toTransformed = (x: number, y: number) => {
-    const rx = x * cos + y * sin;
-    const ry = -x * sin + y * cos;
-    return { x: rx / stretch, y: ry };
-  };
-
-  const fromTransformed = (xt: number, yt: number) => {
-    const xs = xt * stretch;
-    const ys = yt;
-    const rx = xs * cos - ys * sin;
-    const ry = xs * sin + ys * cos;
-    return [rx, ry] as [number, number];
-  };
+  // Garlic anisotropy: stretch 1.35 (more isotropic than Louro to keep nuclei readable inside cells).
+  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.35, rotation);
 
   for (let gi = -4; gi <= M + 3; gi++) {
     for (let gj = -4; gj <= M + 3; gj++) {
@@ -1162,24 +1048,8 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   const wallWidth = strokeWidth(config.lineWidth || 2).toFixed(1); // absolute pixels, never scales with zoom
   const roundedness = config.voronoiRoundedness ?? 28;
 
-  const alpha = (rotation * Math.PI) / 180;
-  const cos = Math.cos(alpha);
-  const sin = Math.sin(alpha);
-  const stretch = 1.35;
-
-  const toTransformed = (x: number, y: number) => {
-    const rx = x * cos + y * sin;
-    const ry = -x * sin + y * cos;
-    return { x: rx / stretch, y: ry };
-  };
-
-  const fromTransformed = (xt: number, yt: number) => {
-    const xs = xt * stretch;
-    const ys = yt;
-    const rx = xs * cos - ys * sin;
-    const ry = xs * sin + ys * cos;
-    return [rx, ry] as [number, number];
-  };
+  // Garlic anisotropy: stretch 1.35 (more isotropic than Louro to keep nuclei readable inside cells).
+  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.35, rotation);
 
   for (let gi = -4; gi <= M + 3; gi++) {
     for (let gj = -4; gj <= M + 3; gj++) {
@@ -1229,17 +1099,9 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
 
 // ─── Pimenta micro-particles: organic granules inside cells ──────────────────
 
-// Calculate polygon area using shoelace formula
-function calculatePolygonArea(poly: [number, number][]): number {
-  let area = 0;
-  const n = poly.length;
-  for (let i = 0; i < n; i++) {
-    const [x1, y1] = poly[i];
-    const [x2, y2] = poly[(i + 1) % n];
-    area += (x1 * y2 - x2 * y1);
-  }
-  return Math.abs(area) / 2;
-}
+// calculatePolygonArea was identical to engine/voronoi.ts polygonArea —
+// kept as a thin alias to preserve call-site stability during refactor.
+const calculatePolygonArea = polygonArea;
 
 // Inset a polygon inward toward its centroid (factor < 1 shrinks)
 function insetPolygonForParticles(poly: [number, number][], factor: number): [number, number][] {
@@ -1372,21 +1234,9 @@ export function renderPimentaMicroscopeGrid(
   const roundedness = config.voronoiRoundedness ?? 42;
   const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
 
-  // Anisotropic metric — rotation controls cell elongation direction (same principle as Louro/Alho).
-  // The canvas and tile boundaries never rotate; only the Voronoi distance metric is deformed.
-  const alpha = ((config.rotation ?? 0) * Math.PI) / 180;
-  const cos = Math.cos(alpha);
-  const sin = Math.sin(alpha);
-  const stretch = 1.22;
-
-  const toT = (x: number, y: number) => ({
-    x: (x * cos + y * sin) / stretch,
-    y: -x * sin + y * cos,
-  });
-  const fromT = (xt: number, yt: number): [number, number] => {
-    const xs = xt * stretch;
-    return [xs * cos - yt * sin, xs * sin + yt * cos];
-  };
+  // Pepper anisotropy: stretch 1.22 (subtle elongation — Voronoi distance metric only;
+  // canvas and tile boundaries never rotate, mirroring Louro/Alho).
+  const { toT, fromT } = createAnisotropicTransform(1.22, config.rotation ?? 0);
 
   // Seeds in canvas space with small padding to keep edge cells complete
   const pad = 0.12;
@@ -2141,19 +1991,8 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
   const roundedness = config.voronoiRoundedness ?? 42;
   const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
 
-  const alpha = ((config.rotation ?? 0) * Math.PI) / 180;
-  const cos = Math.cos(alpha);
-  const sin = Math.sin(alpha);
-  const stretch = 1.22;
-
-  const toT = (x: number, y: number) => ({
-    x: (x * cos + y * sin) / stretch,
-    y: -x * sin + y * cos,
-  });
-  const fromT = (xt: number, yt: number): [number, number] => {
-    const xs = xt * stretch;
-    return [xs * cos - yt * sin, xs * sin + yt * cos];
-  };
+  // Mirror the canvas anisotropy exactly (stretch 1.22).
+  const { toT, fromT } = createAnisotropicTransform(1.22, config.rotation ?? 0);
 
   const pad = 0.12;
   const seeds: { x: number; y: number }[] = [];
