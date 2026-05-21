@@ -5,6 +5,7 @@
 
 import { Seasoning, PatternConfig } from '../types';
 import { PARAMETERS, SpiceId } from '../engine/parameters';
+import { strokeWidth } from '../engine/scaling';
 
 // Deterministic pseudo-random number generator to prevent flickering patterns
 export class SeededRandom {
@@ -797,7 +798,7 @@ export function renderLouroMicroscopeGrid(
       ctx.fillStyle = cellBgColor;
       ctx.fill();
       ctx.strokeStyle = isDark ? CREAM : wallColor; // bg color as membrane line
-      ctx.lineWidth = Math.max(1.8, (config.lineWidth || 2) * 1.5 * (config.zoom / 100));
+      ctx.lineWidth = strokeWidth(config.lineWidth || 2); // absolute pixels, never scales with zoom
       ctx.stroke();
       ctx.restore();
     }
@@ -846,7 +847,7 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
     return { x, y };
   };
 
-  const wallWidth = Math.max(1.8, (config.lineWidth || 2) * 1.5 * (config.zoom / 100)).toFixed(1);
+  const wallWidth = strokeWidth(config.lineWidth || 2).toFixed(1); // absolute pixels, never scales with zoom
   const roundedness = config.voronoiRoundedness ?? 35;
 
   const alpha = (rotation * Math.PI) / 180;
@@ -1102,7 +1103,7 @@ export function renderGarlicMicroscopeGrid(
       ctx.fillStyle = cellBgColor;
       ctx.fill();
       ctx.strokeStyle = isDark ? CREAM : wallColor; // bg color as membrane line
-      ctx.lineWidth = Math.max(1.8, (config.lineWidth || 2) * 1.3 * (config.zoom / 100));
+      ctx.lineWidth = strokeWidth(config.lineWidth || 2); // absolute pixels, never scales with zoom
       ctx.stroke();
       ctx.restore();
 
@@ -1158,7 +1159,7 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
     return { x, y };
   };
 
-  const wallWidth = Math.max(1.8, (config.lineWidth || 2) * 1.3 * (config.zoom / 100)).toFixed(1);
+  const wallWidth = strokeWidth(config.lineWidth || 2).toFixed(1); // absolute pixels, never scales with zoom
   const roundedness = config.voronoiRoundedness ?? 28;
 
   const alpha = (rotation * Math.PI) / 180;
@@ -1447,7 +1448,7 @@ export function renderPimentaMicroscopeGrid(
     cellPolys.push(finalPoly);
   }
 
-  const wallThick = Math.max(1.5, (config.lineWidth || 2) * 1.5 * (config.zoom / 100));
+  const wallThick = strokeWidth(config.lineWidth || 2); // absolute pixels, never scales with zoom
   const particleRng = new SeededRandom('pimenta_particles_v1_' + Math.round(config.layoutSeed ?? 1));
 
   // Identical geometry for both modes — fill then stroke with bg color, only colors change
@@ -1861,7 +1862,7 @@ export function renderManjericaoMicroscopeGrid(
 
   // Layer 1: Amorphous membrane outlines (thin stroke only — translucent ghost membranes)
   ctx.strokeStyle = shapeColor;
-  ctx.lineWidth = Math.max(0.6, (config.lineWidth || 1.5) * 0.7);
+  ctx.lineWidth = strokeWidth(config.lineWidth || 1.5); // absolute pixels, consistent across all spices
   ctx.lineJoin = 'round';
   for (const m of layout.membranes) {
     const pts = buildOrganicBlobPoints(m.cx, m.cy, m.rx, m.ry, m.points, m.seed, 0.28);
@@ -1915,7 +1916,7 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
   const bgColor = isDark ? CREAM : keyColor;
   const shapeColor = isDark ? keyColor : CREAM;
-  const strokeW = Math.max(0.6, (config.lineWidth || 1.5) * 0.7).toFixed(2);
+  const strokeW = strokeWidth(config.lineWidth || 1.5).toFixed(2); // absolute pixels, consistent across all spices
 
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
@@ -2205,7 +2206,7 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
     cellPolys.push(finalPoly);
   }
 
-  const wallThick = Math.max(1.5, (config.lineWidth || 2) * 1.5 * (config.zoom / 100)).toFixed(1);
+  const wallThick = strokeWidth(config.lineWidth || 2).toFixed(1); // absolute pixels, never scales with zoom
   const particleRng = new SeededRandom('pimenta_particles_v1_' + Math.round(config.layoutSeed ?? 1));
 
   for (const poly of cellPolys) {

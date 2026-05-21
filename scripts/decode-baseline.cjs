@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const src = String.raw`C:\Users\desig\.claude\projects\C--Users-desig\ba58b789-3e94-4c5a-8c2e-2ad2f74ce9cf\tool-results\mcp-Claude_Preview-preview_eval-1779377240847.txt`;
+// Accept the source path via argv to keep the decoder reusable across re-baseline runs.
+const src = process.argv[2] || String.raw`C:\Users\desig\.claude\projects\C--Users-desig\ba58b789-3e94-4c5a-8c2e-2ad2f74ce9cf\tool-results\mcp-Claude_Preview-preview_eval-1779377240847.txt`;
 
 let content = fs.readFileSync(src, 'utf8').trim();
 
