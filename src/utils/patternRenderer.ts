@@ -1238,9 +1238,14 @@ export function renderPimentaMicroscopeGrid(
   ctx.fillStyle = isDark ? CREAM : keyColor;
   ctx.fillRect(0, 0, W, H);
 
+  // Canonical density semantics — see VISUAL_CALIBRATION.md.
+  // SPICE_DENSITY_FACTORS.pimenta = 1.39 → M=3 at curated default (zoom=340, density=22).
+  // Pimenta caps M at 11 (vs 22 for Louro/Alho): its multi-scale seeding adds a
+  // clustered small-cell layer on top of the M×M sparse layer, so capping the
+  // macro grid earlier prevents the canvas from drowning in tiny cells.
   const density = config.density ?? 40;
-  const zm = (config.zoom ?? 100) / 100;
-  const M = Math.max(3, Math.min(11, Math.round((density * 0.45) / zm)));
+  const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.pimenta, config.zoom ?? 100, true);
+  const M = Math.max(3, Math.min(11, Math.round(Math.sqrt(totalCount))));
   const roundedness = config.voronoiRoundedness ?? 42;
   const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
 
@@ -2000,9 +2005,10 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
   const W = width, H = height;
   let tileContent = `\n      <rect width="${W}" height="${H}" fill="${isDark ? CREAM : keyColor}" />\n  `;
 
+  // Mirrors canvas exactly — see renderPimentaMicroscopeGrid above.
   const density = config.density ?? 40;
-  const zm = (config.zoom ?? 100) / 100;
-  const M = Math.max(3, Math.min(11, Math.round((density * 0.45) / zm)));
+  const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.pimenta, config.zoom ?? 100, true);
+  const M = Math.max(3, Math.min(11, Math.round(Math.sqrt(totalCount))));
   const roundedness = config.voronoiRoundedness ?? 42;
   const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
 
