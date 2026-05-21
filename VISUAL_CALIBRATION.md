@@ -145,6 +145,11 @@ calibration/
   oregano-300x.png   (~28 capsules, curated default range)
   oregano-800x.png   (~12 capsules, large but non-dominant)
   oregano-1200x.png  (~8 capsules, max size, still respects negative space)
+
+  sal-100x.png       (~25 small crystalline grains, dispersed)
+  sal-300x.png       (~20 mid crystals, light clustering)
+  sal-800x.png       (~12 larger crystals, clear cluster shape)
+  sal-1200x.png      (~7 max-size crystals, fractured cubes + hexagons)
 ```
 
 To regenerate after future renderer changes: re-run the eval loop in
@@ -368,4 +373,73 @@ Spores are a **mid feature** in microscopy terms:
 - Not substrate (background grain like Manjericão micro-particles) — so they shouldn't stay constant either
 - They follow the same calibration family as **Manjericão chloroplasts** (`strength=0.7`, sqrt size) — both are "mid features" that get larger but fewer with magnification, preserving readability.
 
-Salt comes next (separate phase). Salt should probably calibrate as **substrate** (`strength=0`, absolute size) — crystals are intrinsic to the medium, not a feature being magnified.
+---
+
+## Sal — crystalline grain reference
+
+Captured at: `density=18`, `lineWidth=1.6` (unused — no strokes),
+`voronoiRoundedness=0` (intentional — Sal is rigid by identity),
+`rotation=0`, `themeMode=light`, `seed=42`.
+
+**Phase A rewrite:** Sal was the last spice on the legacy particle dispatch
+(soft `pathOrganicBlob` ellipses + pebbles). The new renderer produces
+**crystalline polygons** with sharp edges, matching real salt-crystal
+microscopy: cubic dominant (60%), hexagonal (25%), octagonal (15%).
+
+**The new contract:**
+- Shape: `buildCrystalPolygonPts(cx, cy, rx, ry, sides, rotation, rng, jaggedness)` — regular N-gon with per-vertex jitter and aspect ratio
+- Size: `baseR = minDim × 0.026 × sqrt(zoom/100)` — same sqrt family as Orégano
+- Count: `targetCount(density, area, 1.10, zoom, 0.5)` — mid-feature, gentle reduction (strength 0.5 — between Manjericão chloroplasts at 0.7 and grains at 0)
+
+Calibration anchors at curated default (zoom=120, density=18):
+crystals ≈ 18 with baseR ≈ 34 px.
+
+Predicted at density=18:
+
+| zoom | baseR | count | feel |
+|---:|---:|---:|---|
+| 100x | ~31 px | ~20 | wide grain dispersion |
+| 120x (default) | ~34 px | ~18 | curated |
+| 300x | ~45 px | ~12 | clustered crystals |
+| 800x | ~74 px | ~7 | macro cluster view |
+| 1200x | ~90 px | ~6 (floor) | extreme crystal close-up |
+
+---
+
+### Sal 100x  —  "wide grain dispersion"
+
+![sal-100x](calibration/sal-100x.png)
+
+~20 small crystals across the canvas, varied shapes (cubes + hexagons + octagons), tight cluster forming bottom-right. Negative space dominant (~85%).
+
+### Sal 300x  —  "curated default range"
+
+![sal-300x](calibration/sal-300x.png)
+
+~12 mid-size crystals, central cluster has overlapping crystals forming a fragmented mass. Clearer shape silhouettes. Negative space ~75%.
+
+### Sal 800x  —  "macro cluster"
+
+![sal-800x](calibration/sal-800x.png)
+
+~7 larger crystals, some overlapping into agglomerates. Cubic + hexagonal silhouettes legible at this size. Negative space ~70%.
+
+### Sal 1200x  —  "extreme crystal close-up"
+
+![sal-1200x](calibration/sal-1200x.png)
+
+~6 large crystals (floor enforced via `Math.max(6, ...)` in the count formula — below 6 the canvas reads as empty). Cubic shapes dominant, with one large hexagonal plate. Negative space ~65%, distinct individual silhouettes.
+
+---
+
+## Phase A scope
+
+This commit MOVED Sal off the legacy particle dispatch onto the canonical pipeline. The visual character intentionally shifted from "soft round grains" to "crystalline polygons" — a single coherent design choice rather than incremental morphing.
+
+**What stayed:** the layoutSeed-driven determinism (already fixed in the earlier noise commit), the cluster-aware placement (preserved via the same Poisson-disc strategy as Orégano).
+
+**What changed:** all shapes, count formula, size formula, and the noise overlay (no longer applied — was Sal-only legacy).
+
+**Pixel parity:** intentionally NOT byte-identical. Sal PNG bytes dropped from ~1.5 MB to ~56 KB (28× smaller) because crystalline polygons compress dramatically better than organic-blob edges + camera-grain noise.
+
+**Future phase B (separate commit):** consider adding internal cleavage lines on large crystal plates (thin strokes suggesting crystallographic cleavage planes) to push the microscopy realism further.

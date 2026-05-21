@@ -1497,6 +1497,204 @@ export function renderOreganoMicroscopeGrid(
   }
 }
 
+// ─── Sal (Salt) microscopy: crystalline grain field ──────────────────────────
+//
+// Phase A migration: moves Sal off the legacy particle dispatch onto the
+// canonical pipeline (targetCount + scaleAtZoom + seeded RNG only). The
+// visual character shifts from "soft organic blobs" to "crystalline polygon
+// grains" — closer to actual salt-crystal microscopy: cubic dominant shapes,
+// some hexagonal facets, slight jaggedness, no curved outlines.
+//
+// Per VISUAL_CALIBRATION.md: Sal calibrates as a *mid feature* (strength=0.5),
+// not pure substrate — selecting Sal as a spice means crystals ARE the
+// subject, so they should respond to zoom (fewer + larger at higher mag).
+
+interface SalCrystal {
+  x: number; y: number;
+  rx: number; ry: number;
+  sides: number;
+  rotation: number;
+  jaggedness: number;
+  seed: string;
+}
+
+// Shared crystal polygon: regular N-gon with per-vertex radius jitter (jaggedness)
+// and axis rotation. Aspect (rx vs ry) creates rectangular cubes-from-angle.
+function buildCrystalPolygonPts(
+  cx: number, cy: number,
+  rx: number, ry: number,
+  sides: number,
+  rotation: number,
+  rng: SeededRandom,
+  jaggedness: number,
+): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  for (let i = 0; i < sides; i++) {
+    const a = (i / sides) * Math.PI * 2;
+    const scale = rng.range(1 - jaggedness, 1 + jaggedness);
+    const lx = Math.cos(a) * rx * scale;
+    const ly = Math.sin(a) * ry * scale;
+    pts.push({ x: cx + lx * cos - ly * sin, y: cy + lx * sin + ly * cos });
+  }
+  return pts;
+}
+
+function pathCrystalCanvas(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[]): void {
+  if (pts.length < 3) return;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath();
+}
+
+function svgCrystalPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 3) return '';
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
+  return d + ' Z';
+}
+
+// Clustered Poisson-disc placement — natural salt-grain dispersal with
+// loose clustering, mirroring the Orégano approach but tuned for Sal sizes.
+function generateSalCrystalPositions(W: number, H: number, config: PatternConfig): SalCrystal[] {
+  const density = config.density ?? 18;
+  const zoom = config.zoom ?? 100;
+  const globalAngle = ((config.rotation ?? 0) * Math.PI) / 180;
+  const rng = new SeededRandom('sal_crystal_v1_' + Math.round(config.layoutSeed ?? 1));
+
+  // SIZE: sqrt scaling — at zoom=1200 crystals grow ~3.46× instead of 12×.
+  // 0.026 calibrated so baseR ≈ 34 px at default zoom=120, matching the
+  // legacy avg particle size (16-42 range × 1.15 multiplier × 1.2 zoom ≈ 33 px).
+  const baseR = Math.min(W, H) * 0.026 * scaleAtZoom(1, zoom, 'sqrt');
+  const minDist = baseR * 1.4;
+
+  // COUNT: strength=0.5 (mild reduction) — Sal is a *mid feature* in the
+  // calibration family (between substrate constant and strong macro reduction).
+  // factor=1.10 calibrated so count ≈ 18 at default (zoom=120, density=18).
+  const desiredCount = Math.max(6, targetCount(density, W * H, SPICE_DENSITY_FACTORS.sal, zoom, 0.5));
+
+  // O(1) Poisson neighbor grid (same approach as Orégano)
+  const offX = minDist * 2, offY = minDist * 2;
+  const cellSize = minDist / Math.SQRT2;
+  const gW = Math.ceil((W + offX * 2) / cellSize) + 1;
+  const gH = Math.ceil((H + offY * 2) / cellSize) + 1;
+  const grid: ({ x: number; y: number } | null)[] = new Array(gW * gH).fill(null);
+  const gIdx = (x: number, y: number) => {
+    const gx = Math.min(gW - 1, Math.max(0, Math.floor((x + offX) / cellSize)));
+    const gy = Math.min(gH - 1, Math.max(0, Math.floor((y + offY) / cellSize)));
+    return gy * gW + gx;
+  };
+  const isValid = (px: number, py: number) => {
+    const gx = Math.floor((px + offX) / cellSize);
+    const gy = Math.floor((py + offY) / cellSize);
+    for (let i = Math.max(0, gx - 2); i <= Math.min(gW - 1, gx + 2); i++) {
+      for (let j = Math.max(0, gy - 2); j <= Math.min(gH - 1, gy + 2); j++) {
+        const n = grid[j * gW + i];
+        if (n) {
+          const dx = px - n.x, dy = py - n.y;
+          if (dx * dx + dy * dy < minDist * minDist) return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  const crystals: SalCrystal[] = [];
+  const place = (px: number, py: number): boolean => {
+    if (!isValid(px, py)) return false;
+    // Size tier: 70% small grains, 25% medium crystals, 5% large plates.
+    const sizeRoll = rng.range(0, 1);
+    let r: number;
+    if (sizeRoll < 0.70) r = baseR * rng.range(0.40, 0.80);
+    else if (sizeRoll < 0.95) r = baseR * rng.range(0.80, 1.40);
+    else r = baseR * rng.range(1.40, 2.00);
+    // Shape tier: 60% cubic (4-sided), 25% hexagonal, 15% octagonal.
+    // Higher 'sides' + lower jaggedness produces rounder grains; cubes stay
+    // sharp. Larger plates get slightly more jaggedness (fracture feel).
+    const shapeRoll = rng.range(0, 1);
+    let sides: number, jagged: number;
+    if (shapeRoll < 0.60) { sides = 4; jagged = 0.06; }
+    else if (shapeRoll < 0.85) { sides = 6; jagged = 0.09; }
+    else { sides = 8; jagged = 0.13; }
+    if (sizeRoll >= 0.95) jagged += 0.07; // large plates fracture more
+    const aspect = rng.range(0.78, 1.18);
+    const rotation = globalAngle + rng.range(0, Math.PI * 2);
+    crystals.push({
+      x: px, y: py, rx: r, ry: r * aspect,
+      sides, rotation, jaggedness: jagged,
+      seed: 'sal_crystal_' + crystals.length,
+    });
+    grid[gIdx(px, py)] = { x: px, y: py };
+    return true;
+  };
+
+  // 2-4 cluster centers + scattered crystals around them (~80%) + free scatter (~20%)
+  const nClusters = 2 + Math.floor(rng.range(0, 2.9));
+  const clusters: { x: number; y: number }[] = [];
+  for (let c = 0; c < nClusters; c++) {
+    const cx = rng.range(0.12, 0.88) * W;
+    const cy = rng.range(0.12, 0.88) * H;
+    clusters.push({ x: cx, y: cy });
+    place(cx, cy);
+  }
+
+  let attempts = 0;
+  while (crystals.length < desiredCount && attempts < desiredCount * 60) {
+    attempts++;
+    if (rng.range(0, 1) < 0.80) {
+      const cc = clusters[Math.floor(rng.range(0, clusters.length))];
+      const spread = Math.min(W, H) * rng.range(0.06, 0.42);
+      const a = rng.range(0, Math.PI * 2);
+      place(cc.x + Math.cos(a) * spread * rng.range(0, 1), cc.y + Math.sin(a) * spread * rng.range(0, 1));
+    } else {
+      place(rng.range(0, W), rng.range(0, H));
+    }
+  }
+
+  return crystals;
+}
+
+export function renderSalMicroscopeGrid(
+  ctx: CanvasRenderingContext2D, W: number, H: number, config: PatternConfig
+): void {
+  const isDark = config.themeMode === 'dark';
+  const oklchCfg = SEASONINGS_OKLCH['sal'];
+  const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
+  // Theme: LIGHT bg=keyColor + crystals=cream; DARK bg=cream + crystals=keyColor
+  const bgColor = isDark ? CREAM : keyColor;
+  const shapeColor = isDark ? keyColor : CREAM;
+
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = shapeColor;
+
+  for (const c of generateSalCrystalPositions(W, H, config)) {
+    const shapeRng = new SeededRandom(c.seed);
+    pathCrystalCanvas(ctx, buildCrystalPolygonPts(c.x, c.y, c.rx, c.ry, c.sides, c.rotation, shapeRng, c.jaggedness));
+    ctx.fill();
+  }
+}
+
+function generateSalSVGPatternString(config: PatternConfig, width: number, height: number): string {
+  const isDark = config.themeMode === 'dark';
+  const oklchCfg = SEASONINGS_OKLCH['sal'];
+  const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
+  const bgColor = isDark ? CREAM : keyColor;
+  const shapeColor = isDark ? keyColor : CREAM;
+
+  let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
+  for (const c of generateSalCrystalPositions(width, height, config)) {
+    const shapeRng = new SeededRandom(c.seed);
+    const pts = buildCrystalPolygonPts(c.x, c.y, c.rx, c.ry, c.sides, c.rotation, shapeRng, c.jaggedness);
+    const d = svgCrystalPath(pts);
+    if (d) content += `    <path d="${d}" fill="${shapeColor}" />\n`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    ${content}</svg>`;
+}
+
 // ─── Manjericão (Basil) microscopy: chloroplast tissue + glandular trichomes ─
 
 // Shared organic blob points generator (consumed by canvas + SVG)
@@ -1896,6 +2094,11 @@ export function renderPatternTile(
     return;
   }
 
+  if (seasoning.id === 'sal') {
+    renderSalMicroscopeGrid(ctx, width, height, config);
+    return;
+  }
+
   ctx.save();
 
   // Background: light=keyColor, dark=CREAM
@@ -2177,6 +2380,10 @@ export function generateSVGPatternString(
 
   if (seasoning.id === 'manjericao') {
     return generateManjericaoSVGPatternString(config, width, height);
+  }
+
+  if (seasoning.id === 'sal') {
+    return generateSalSVGPatternString(config, width, height);
   }
 
   const rng = new SeededRandom(seasoning.id + '_svg_organic_v2_' + Math.round(config.layoutSeed ?? 1));
