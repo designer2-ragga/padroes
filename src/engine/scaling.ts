@@ -109,20 +109,31 @@ export function targetCount(
 
 /**
  * Per-spice calibration factor that maps the unified density slider
- * to each spice's natural structure-count rhythm. Calibrated so that
- * density=20 at the spice's curated default zoom produces approximately
- * the same "fullness" across all 6 spices.
+ * to each spice's natural structure-count rhythm.
  *
- * NOT yet consumed — kept here as the eventual calibration target
- * during the Voronoi/morphology engine migration.
+ * Calibration rule: factor is chosen so that at the spice's curated
+ * default (zoom, density), targetCount(...) yields a structure count
+ * whose square root matches the prior-art's grid-side M. This locks in
+ * pixel parity with baseline-snapshots at the curated config.
+ *
+ * Verification per spice: pick the (zoom_default, density_default) from
+ * PARAMETERS, compute old_M from the legacy inline formula, solve for
+ * factor in:  round(sqrt(density * factor * (100/zoom))) == old_M
+ *
+ * Louro default (zoom=220, density=9): old_M = 3 → factor = 9/(9*100/220) = 2.20
+ * Alho  default (zoom=180, density=14): old_M = round((14/3)/1.8) = 3 → factor = 9/(14*100/180) = 1.16
+ * Pimenta default (zoom=340, density=22): old_M = round((22*0.45)/3.4) = 3 → factor = 9/(22*100/340) = 1.39
+ *
+ * The other three spices haven't migrated yet — factors stay as initial
+ * estimates until their migration recalibrates.
  */
 export const SPICE_DENSITY_FACTORS: Record<string, number> = {
-  sal: 1.4,        // Salt: small particles, allows higher counts
-  louro: 0.8,      // Bay Leaf: large Voronoi cells, fewer structures
-  alho: 1.0,       // Garlic: medium cells with nuclei overlays
-  pimenta: 0.9,    // Pepper: variable-density Voronoi
-  manjericao: 1.8, // Basil: multi-layer, many small grains per "structure"
-  oregano: 1.6,    // Oregano: dense clustered capsules
+  sal: 1.4,         // Salt: TBD (still on legacy particle dispatch)
+  louro: 2.2,       // Bay Leaf: calibrated to old_M=3 at default → pixel parity
+  alho: 1.16,       // Garlic:  pre-calibrated, awaiting migration
+  pimenta: 1.39,    // Pepper:  pre-calibrated, awaiting migration
+  manjericao: 1.8,  // Basil:   TBD (different topology — multi-layer)
+  oregano: 1.6,     // Oregano: TBD (different topology — Poisson capsules)
 };
 
 // ─── Stroke philosophy ──────────────────────────────────────────────────────

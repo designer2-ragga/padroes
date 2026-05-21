@@ -5,7 +5,7 @@
 
 import { Seasoning, PatternConfig } from '../types';
 import { PARAMETERS, SpiceId } from '../engine/parameters';
-import { strokeWidth } from '../engine/scaling';
+import { strokeWidth, targetCount, SPICE_DENSITY_FACTORS } from '../engine/scaling';
 import {
   clipPolygon,
   isPointInPolygon,
@@ -667,10 +667,16 @@ export function renderLouroMicroscopeGrid(
   ctx.fillStyle = isDark ? CREAM : wallColor;
   ctx.fillRect(0, 0, W, H);
 
-  // Map cellular density (12 to 60) and zoom (100 to 320) smoothly to cell divisions M
+  // Density semantics (canonical, shared with all Voronoi spices):
+  //   target structure COUNT = density × SPICE_DENSITY_FACTORS[id] × area_scale × (100/zoom)
+  //   M (grid side)         = clamp(round(sqrt(count)), 3, 22)
+  //
+  // Calibration: SPICE_DENSITY_FACTORS.louro = 2.2 keeps M=3 at curated default
+  //   (zoom=220, density=9), giving byte-identical baseline-snapshot output.
+  // Higher zoom → fewer/larger cells (zoomReduces=true) → microscopy intuition.
   const density = config.density ?? 40;
-  const zm = (config.zoom ?? 100) / 100;
-  const M = Math.max(3, Math.min(22, Math.round((density / 3) / zm)));
+  const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.louro, config.zoom ?? 100, true);
+  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('louro_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
@@ -757,9 +763,10 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
 
   let tileContent = `\n      <rect width="${width}" height="${height}" fill="${wallColor}" />\n  `;
 
+  // Mirrors canvas density semantics exactly — same factor, same formula.
   const density = config.density ?? 40;
-  const zm = (config.zoom ?? 100) / 100;
-  const M = Math.max(3, Math.min(22, Math.round((density / 3) / zm)));
+  const totalCount = targetCount(density, width * height, SPICE_DENSITY_FACTORS.louro, config.zoom ?? 100, true);
+  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('louro_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
