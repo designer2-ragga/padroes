@@ -935,9 +935,11 @@ export function renderGarlicMicroscopeGrid(
   ctx.fillStyle = isDark ? CREAM : wallColor;
   ctx.fillRect(0, 0, W, H);
 
+  // Canonical density semantics — see VISUAL_CALIBRATION.md.
+  // SPICE_DENSITY_FACTORS.alho = 1.16 → M=3 at curated default (zoom=180, density=14).
   const density = config.density ?? 40;
-  const zm = (config.zoom ?? 100) / 100;
-  const M = Math.max(3, Math.min(22, Math.round((density / 3) / zm)));
+  const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.alho, config.zoom ?? 100, true);
+  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('garlic_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
@@ -1027,9 +1029,10 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
 
   let tileContent = `\n      <rect width="${width}" height="${height}" fill="${bgFillColor}" />\n  `;
 
+  // Mirrors canvas exactly — see renderGarlicMicroscopeGrid above.
   const density = config.density ?? 40;
-  const zm = (config.zoom ?? 100) / 100;
-  const M = Math.max(3, Math.min(22, Math.round((density / 3) / zm)));
+  const totalCount = targetCount(density, width * height, SPICE_DENSITY_FACTORS.alho, config.zoom ?? 100, true);
+  const M = Math.max(3, Math.min(22, Math.round(Math.sqrt(totalCount))));
 
   const rng = new SeededRandom('garlic_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
