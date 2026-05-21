@@ -1400,13 +1400,21 @@ type OreganoSpore = { x: number; y: number; halfH: number; halfW: number; rot: n
 // Clustered Poisson-disc scatter — same seed produces identical positions in canvas + SVG
 function generateOreganoSporePositions(W: number, H: number, config: PatternConfig): OreganoSpore[] {
   const density = config.density ?? 30;
-  const zm = (config.zoom ?? 100) / 100;
+  const zoom = config.zoom ?? 100;
   const globalAngle = ((config.rotation ?? 0) * Math.PI) / 180;
-  const rng = new SeededRandom('oregano_spore_v1_' + Math.round(config.layoutSeed ?? 1));
+  const rng = new SeededRandom('oregano_spore_v2_' + Math.round(config.layoutSeed ?? 1));
 
-  const baseH = Math.min(W, H) * 0.046 * zm;
+  // SIZE: sqrt(zoom/100) instead of linear zm. At zoom=1200 capsules grow ~3.46×
+  // instead of ~12×, keeping the optical microscopy feel (cells never dominate frame).
+  // Calibration: 0.0544 baseline anchors capsule size at the legacy value (~77px) when
+  // zoom=140 (Orégano curated default).
+  const baseH = Math.min(W, H) * 0.0544 * scaleAtZoom(1, zoom, 'sqrt');
   const minDist = baseH * 1.1;
-  const targetCount = Math.max(8, Math.round((density * 2.5) / Math.max(0.5, zm)));
+
+  // COUNT: canonical targetCount with strength=0.7 (mid-feature, gentle reduction).
+  // At default (zoom=140, density=28) yields ~50 — matches legacy.
+  // At zoom=1200 yields ~10 — readable microscopy view, no overcrowding.
+  const desiredCount = Math.max(8, targetCount(density, W * H, SPICE_DENSITY_FACTORS.oregano, zoom, 0.7));
 
   // Grid for O(1) Poisson-disc neighbor checks, offset so negative coords are valid
   const offX = minDist * 2, offY = minDist * 2;
@@ -1458,7 +1466,7 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
   }
 
   let attempts = 0;
-  while (spores.length < targetCount && attempts < targetCount * 50) {
+  while (spores.length < desiredCount && attempts < desiredCount * 50) {
     attempts++;
     const cc = clusters[Math.floor(rng.range(0, clusters.length))];
     const spread = Math.min(W, H) * rng.range(0.08, 0.46);

@@ -139,10 +139,12 @@ export function targetCount(
 export const SPICE_DENSITY_FACTORS: Record<string, number> = {
   sal: 1.4,         // Salt: TBD (still on legacy particle dispatch)
   louro: 2.2,       // Bay Leaf: calibrated to old_M=3 at default → pixel parity
-  alho: 1.16,       // Garlic:  pre-calibrated, awaiting migration
-  pimenta: 1.39,    // Pepper:  pre-calibrated, awaiting migration
-  manjericao: 1.8,  // Basil:   TBD (different topology — multi-layer)
-  oregano: 1.6,     // Oregano: TBD (different topology — Poisson capsules)
+  alho: 1.16,       // Garlic:   calibrated to old_M=3 at default → pixel parity
+  pimenta: 1.39,    // Pepper:   calibrated to old_M=3 at default → pixel parity
+  manjericao: 1.8,  // Basil: per-layer factors live inline in generateBasilLayout
+                    //   (multi-layer topology; this single value is documentation only)
+  oregano: 2.25,    // Oregano:  calibrated so targetCount(28, area, 2.25, 140, 0.7) ≈ 50
+                    //   (matches old (density*2.5)/zm formula at curated default)
 };
 
 // ─── Stroke philosophy ──────────────────────────────────────────────────────

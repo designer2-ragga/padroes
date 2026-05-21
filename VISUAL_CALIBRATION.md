@@ -138,6 +138,11 @@ calibration/
   manjericao-300x.png   (curated default — clear hierarchy)
   manjericao-800x.png   (macro features fewer/larger, substrate still dense)
   manjericao-1200x.png  (high mag — few large cells, dense grain noise)
+
+  oregano-100x.png   (~50 capsules, wide spore field)
+  oregano-300x.png   (~28 capsules, curated default range)
+  oregano-800x.png   (~12 capsules, large but non-dominant)
+  oregano-1200x.png  (~8 capsules, max size, still respects negative space)
 ```
 
 To regenerate after future renderer changes: re-run the eval loop in
@@ -259,3 +264,106 @@ The zoom slider on Manjericão now feels like changing microscope objectives, no
 | Micro-particles never resize | Pixel-level background noise should remain pixel-level — never "scaled up to giant dots" |
 
 **Pixel parity:** intentionally NOT byte-identical with the prior implementation. The RNG seed prefix was bumped from `basil_layout_v2_` to `basil_layout_v3_` to reflect that the layout era changed. Per the user's directive — "Não precisa byte-identical absoluto se a mudança melhorar coerência do zoom; mas: mesma leitura visual, mesma hierarquia, mesma assinatura morfológica" — the new output preserves the visual character (5 layers, biomass clustering, multi-scale shapes) while introducing optical zoom semantics.
+
+---
+
+## Orégano — clustered spore capsule reference
+
+Captured at: `density=28`, `lineWidth=1.3` (unused — no strokes),
+`voronoiRoundedness=35` (unused), `rotation=0`, `themeMode=light`, `seed=42`.
+
+**The old problem:** capsule height scaled `linear × zm`. At zoom=1200x,
+each capsule was ~660 px tall — a single capsule could fill the canvas.
+Min-spacing rejection then capped count at 8, producing massive overlapping
+ovals that dominated the frame.
+
+**The new contract:**
+- `baseH = minDim × 0.0544 × sqrt(zoom/100)` (sqrt instead of linear) — at zoom=1200 capsules grow ~3.46× instead of ~12×
+- `count = max(8, targetCount(density, area, 2.25, zoom, 0.7))` — gentle reduction (strength 0.7 — same family as Manjericão chloroplasts)
+
+Capsules NEVER dominate the frame anymore. Clustering preserved via
+the same 2–4 cluster-center scatter mechanism. RNG seed prefix bumped
+from `oregano_spore_v1_` to `oregano_spore_v2_` — intentional non-parity.
+
+Predicted counts at density=28:
+
+| zoom | baseH per capsule | predicted count |
+|---:|---:|---:|
+| 100x | ~65 px  | 63 |
+| 140x (default) | ~77 px | 50 |
+| 300x | ~113 px | 28 |
+| 800x | ~185 px | 12 |
+| 1200x | ~226 px | 8 (floor) |
+
+---
+
+### Orégano 100x  —  "wide spore field"
+
+![oregano-100x](calibration/oregano-100x.png)
+
+| Aspect | Reading |
+|---|---|
+| Capsule count | ~50 visible, dense clustering in lower-left zone |
+| Capsule size | small (~65 px tall), readable individual shapes |
+| Cluster cohesion | strong — clusters tight enough to read as "spore colonies" |
+| Negative space | dominant (>60% of frame) |
+| Vibe | "wide microscopy field of dispersed spores" |
+| Use case | dense-area background tiles |
+
+---
+
+### Orégano 300x  —  "curated default range"
+
+![oregano-300x](calibration/oregano-300x.png)
+
+| Aspect | Reading |
+|---|---|
+| Capsule count | ~28 visible, clear cluster bands |
+| Capsule size | mid (~113 px tall) — full ellipse silhouette legible |
+| Cluster cohesion | excellent — primary cluster horizontal, secondary clusters spread |
+| Negative space | ~50% — strong figure/ground |
+| Vibe | "10× objective view of fungal spore mass" |
+| Use case | identity tiles, social posts |
+
+---
+
+### Orégano 800x  —  "non-dominant macro"
+
+![oregano-800x](calibration/oregano-800x.png)
+
+| Aspect | Reading |
+|---|---|
+| Capsule count | ~12 visible |
+| Capsule size | large (~185 px tall) but never frame-filling |
+| Cluster cohesion | preserved — capsules form a vertical chain on left + spread cluster on right |
+| Negative space | ~40% — capsules dominant by area but NOT continuous |
+| Vibe | "40× objective — focused on a single spore cluster" |
+| Use case | dramatic close-ups |
+
+---
+
+### Orégano 1200x  —  "max mag, no frame dominance"
+
+![oregano-1200x](calibration/oregano-1200x.png)
+
+| Aspect | Reading |
+|---|---|
+| Capsule count | 8 (floor) |
+| Capsule size | max (~226 px tall) — about 19% of canvas width |
+| Cluster cohesion | tight — all capsules touch/overlap into one organic mass |
+| Negative space | ~30% — still readable green between capsule chains |
+| ⚠️ Compared to old | OLD at 1200x: 8 capsules × 660 px = absolute white-out. NEW: cream mass with negative space → microscopy reads. |
+| Vibe | "100× objective — single spore mass under cover slip" |
+| Use case | macro hero frames |
+
+---
+
+## Why Orégano calibrates this way
+
+Spores are a **mid feature** in microscopy terms:
+
+- Not macro (whole-tissue features like Manjericão membranes) — so they shouldn't fade strongly with zoom
+- Not substrate (background grain like Manjericão micro-particles) — so they shouldn't stay constant either
+- They follow the same calibration family as **Manjericão chloroplasts** (`strength=0.7`, sqrt size) — both are "mid features" that get larger but fewer with magnification, preserving readability.
+
+Salt comes next (separate phase). Salt should probably calibrate as **substrate** (`strength=0`, absolute size) — crystals are intrinsic to the medium, not a feature being magnified.
