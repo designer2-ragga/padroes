@@ -92,12 +92,6 @@ const CREAM = 'oklch(96% 0.008 88.75)';
 
 // ─── Parameter scaling helpers ──────────────────────────────────────────────
 
-// Convert linear zoom (40–1200x) to logarithmic scale for smooth magnification feel
-function zoomToMagnificationFactor(zoom: number): number {
-  // Logarithmic scaling: 40 → 0.5x, 100 → 1x, 340 → 3.4x, 1200 → 12x
-  return zoom / 100;
-}
-
 // Easing function for smooth rounding interpolation (ease-in-cubic)
 function easingRounding(t: number): number {
   // t: 0 to 100 (percentage)
@@ -117,58 +111,6 @@ function getThemeColors(seasoningId: string, isDark: boolean): { bg: string; fg:
 
 // clipPolygon + isPointInPolygon now live in src/engine/voronoi.ts (shared with future migrations).
 
-// Scale a polygon inward toward its centroid (factor < 1 shrinks, exposing background between cells)
-function insetPoly(poly: [number, number][], factor: number): [number, number][] {
-  let cx = 0, cy = 0;
-  for (const [x, y] of poly) { cx += x; cy += y; }
-  cx /= poly.length; cy /= poly.length;
-  return poly.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor] as [number, number]);
-}
-
-// Inset a convex polygon by a fixed pixel distance from every edge.
-// Each edge is offset inward by exactly insetPx pixels (perpendicular to the edge),
-// then new vertices are computed as intersections of adjacent offset edges.
-// This produces constant membrane thickness regardless of cell size or Voronoi depth.
-function insetPolyPx(poly: [number, number][], insetPx: number): [number, number][] {
-  const n = poly.length;
-  if (n < 3 || insetPx <= 0) return poly;
-
-  let cx = 0, cy = 0;
-  for (const [x, y] of poly) { cx += x; cy += y; }
-  cx /= n; cy /= n;
-
-  const lines: { px: number; py: number; dx: number; dy: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    const [x0, y0] = poly[i];
-    const [x1, y1] = poly[j];
-    const edx = x1 - x0;
-    const edy = y1 - y0;
-    const len = Math.sqrt(edx * edx + edy * edy);
-    if (len < 1e-10) {
-      lines.push({ px: x0, py: y0, dx: 1, dy: 0 });
-      continue;
-    }
-    let nx = -edy / len;
-    let ny = edx / len;
-    const mx = (x0 + x1) * 0.5;
-    const my = (y0 + y1) * 0.5;
-    if (nx * (cx - mx) + ny * (cy - my) < 0) { nx = -nx; ny = -ny; }
-    lines.push({ px: x0 + nx * insetPx, py: y0 + ny * insetPx, dx: edx, dy: edy });
-  }
-
-  const result: [number, number][] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const l1 = lines[i];
-    const l2 = lines[(i + 1) % lines.length];
-    const det = l1.dx * l2.dy - l1.dy * l2.dx;
-    if (Math.abs(det) < 1e-10) continue;
-    const t = ((l2.px - l1.px) * l2.dy - (l2.py - l1.py) * l2.dx) / det;
-    result.push([l1.px + t * l1.dx, l1.py + t * l1.dy]);
-  }
-
-  return result.length >= 3 ? result : [];
-}
 
 // Draw a closed polygon with rounded corners based on control parameter
 function drawRoundedPolygon(ctx: CanvasRenderingContext2D, poly: [number, number][], roundedness: number) {
