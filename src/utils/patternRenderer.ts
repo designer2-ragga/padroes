@@ -423,7 +423,7 @@ function drawMitosisNucleus(
     const r = size * rng.range(0.18, 0.22);
     ctx.save();
     ctx.translate(ox, oy);
-    pathOrganicVacuole(ctx, r, 7, rng, 0.07);
+    pathFromBlobPoints(ctx, organicShape(0, 0, r, r, 7, rng, 0.07));
     ctx.fill();
     ctx.restore();
   } else {
@@ -432,10 +432,10 @@ function drawMitosisNucleus(
     const r = size * rng.range(0.11, 0.14);
     ctx.rotate(rng.range(-Math.PI / 6, Math.PI / 6));
     ctx.save(); ctx.translate(-dist, 0);
-    pathOrganicVacuole(ctx, r, 7, rng, 0.07);
+    pathFromBlobPoints(ctx, organicShape(0, 0, r, r, 7, rng, 0.07));
     ctx.fill(); ctx.restore();
     ctx.save(); ctx.translate(dist, 0);
-    pathOrganicVacuole(ctx, r, 7, rng, 0.07);
+    pathFromBlobPoints(ctx, organicShape(0, 0, r, r, 7, rng, 0.07));
     ctx.fill(); ctx.restore();
   }
 
@@ -457,7 +457,7 @@ function generateMitosisNucleusSvg(
     const ox = cx + rng.range(-size * 0.05, size * 0.05);
     const oy = cy + rng.range(-size * 0.05, size * 0.05);
     const r = size * rng.range(0.18, 0.22);
-    content = `    <path d="${svgOrganicVacuole(ox, oy, r, 7, rng, 0.07)}" fill="${color}" />\n`;
+    content = `    <path d="${svgFromBlobPoints(organicShape(ox, oy, r, r, 7, rng, 0.07))}" fill="${color}" />\n`;
   } else {
     const dist = size * rng.range(0.20, 0.24);
     const r = size * rng.range(0.11, 0.14);
@@ -468,8 +468,8 @@ function generateMitosisNucleusSvg(
     const y1 = cy - dist * sin;
     const x2 = cx + dist * cos;
     const y2 = cy + dist * sin;
-    content = `    <path d="${svgOrganicVacuole(x1, y1, r, 7, rng, 0.07)}" fill="${color}" />\n`;
-    content += `    <path d="${svgOrganicVacuole(x2, y2, r, 7, rng, 0.07)}" fill="${color}" />\n`;
+    content = `    <path d="${svgFromBlobPoints(organicShape(x1, y1, r, r, 7, rng, 0.07))}" fill="${color}" />\n`;
+    content += `    <path d="${svgFromBlobPoints(organicShape(x2, y2, r, r, 7, rng, 0.07))}" fill="${color}" />\n`;
   }
 
   return content;
