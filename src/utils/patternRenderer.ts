@@ -1009,10 +1009,12 @@ export function renderOreganoMicroscopeGrid(
   const oklchCfg = SEASONINGS_OKLCH['oregano'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
 
-  // Light: keyColor bg + CREAM capsules. Dark: CREAM bg + keyColor capsules.
-  ctx.fillStyle = isDark ? CREAM : keyColor;
-  ctx.fillRect(0, 0, W, H);
+  // Polarity (non-tiling spice): LIGHT = cream bg + keyColor capsules (bright-field);
+  // DARK = keyColor bg + cream capsules (dark-field). Matches the perceived polarity
+  // of the Voronoi spices (Louro/Alho/Pimenta).
   ctx.fillStyle = isDark ? keyColor : CREAM;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = isDark ? CREAM : keyColor;
 
   const layoutSeed = Math.round(config.layoutSeed ?? 1);
   for (const s of generateOreganoSporePositions(W, H, config)) {
@@ -1752,8 +1754,9 @@ function generateOreganoSVGPatternString(config: PatternConfig, width: number, h
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['oregano'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  const bgColor = isDark ? CREAM : keyColor;
-  const cellColor = isDark ? keyColor : CREAM;
+  // Mirrors canvas — see renderOreganoMicroscopeGrid polarity note.
+  const bgColor = isDark ? keyColor : CREAM;
+  const cellColor = isDark ? CREAM : keyColor;
 
   let tileContent = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
   const layoutSeed = Math.round(config.layoutSeed ?? 1);
