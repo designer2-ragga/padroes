@@ -934,7 +934,10 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
   // Calibration: 0.0544 baseline anchors capsule size at the legacy value (~77px) when
   // zoom=140 (Orégano curated default).
   const baseH = Math.min(W, H) * 0.0544 * scaleAtZoom(1, zoom, 'sqrt');
-  const minDist = baseH * 1.1;
+  // minDist sizes the spatial grid for neighbor lookup; set to the minimum possible
+  // capsule diameter (2 × min halfH = 2 × 0.70 × baseH = 1.4 × baseH) so the search
+  // radius always captures all potential neighbors regardless of size variation.
+  const minDist = baseH * 1.4;
 
   // COUNT: canonical targetCount with strength=0.7 (mid-feature, gentle reduction).
   // At default (zoom=140, density=28) yields ~50 — matches legacy.
@@ -946,7 +949,7 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
   const cellSize = minDist / Math.SQRT2;
   const gW = Math.ceil((W + offX * 2) / cellSize) + 1;
   const gH = Math.ceil((H + offY * 2) / cellSize) + 1;
-  const grid: ({ x: number; y: number } | null)[] = new Array(gW * gH).fill(null);
+  const grid: ({ x: number; y: number; halfH: number } | null)[] = new Array(gW * gH).fill(null);
 
   const gIdx = (x: number, y: number) => {
     const gx = Math.min(gW - 1, Math.max(0, Math.floor((x + offX) / cellSize)));
@@ -954,15 +957,20 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
     return gy * gW + gx;
   };
 
-  const isValid = (px: number, py: number) => {
+  // Size-aware validity: reject if center distance < (halfH_candidate + halfH_neighbor) × GAP.
+  // GAP = 0.82 allows ~18% touching tolerance (edges may just kiss in dense clusters,
+  // but deep penetrations are impossible). Neighborhood widened to ±3 cells because
+  // max-sized capsules (1.30 × baseH) can reach further than the ±2 cell window.
+  const isValid = (px: number, py: number, halfH: number) => {
     const gx = Math.floor((px + offX) / cellSize);
     const gy = Math.floor((py + offY) / cellSize);
-    for (let i = Math.max(0, gx - 2); i <= Math.min(gW - 1, gx + 2); i++) {
-      for (let j = Math.max(0, gy - 2); j <= Math.min(gH - 1, gy + 2); j++) {
+    for (let i = Math.max(0, gx - 3); i <= Math.min(gW - 1, gx + 3); i++) {
+      for (let j = Math.max(0, gy - 3); j <= Math.min(gH - 1, gy + 3); j++) {
         const n = grid[j * gW + i];
         if (n) {
           const dx = px - n.x, dy = py - n.y;
-          if (dx * dx + dy * dy < minDist * minDist) return false;
+          const minSep = (halfH + n.halfH) * 0.82;
+          if (dx * dx + dy * dy < minSep * minSep) return false;
         }
       }
     }
@@ -971,12 +979,15 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
 
   const spores: OreganoSpore[] = [];
   const addSpore = (px: number, py: number): boolean => {
-    if (!isValid(px, py)) return false;
+    // Compute actual size/orientation BEFORE validation so the check is size-aware.
+    // Rejected candidates consume 3 rng draws — intentional, ensures stable per-call
+    // RNG cost and prevents oscillation between rejection states.
     const halfH = baseH * rng.range(0.70, 1.30);
     const aspect = rng.range(0.48, 0.78);
     const rot = globalAngle + rng.range(-25, 25) * (Math.PI / 180);
+    if (!isValid(px, py, halfH)) return false;
     spores.push({ x: px, y: py, halfH, halfW: halfH * aspect, rot, idx: spores.length });
-    grid[gIdx(px, py)] = { x: px, y: py };
+    grid[gIdx(px, py)] = { x: px, y: py, halfH };
     return true;
   };
 
