@@ -1079,19 +1079,18 @@ function buildCrystalPolygonPts(
   return pts;
 }
 
+// Subtle corner softening for mineral-crystal feel (still clearly polygonal).
+// Cubic-eased internally; ~9% of shortest-edge inset at 45 → reads as weathered facet.
+const SAL_CORNER_ROUND = 44;
+
 function pathCrystalCanvas(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[]): void {
   if (pts.length < 3) return;
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.closePath();
+  drawRoundedPolygon(ctx, pts.map(p => [p.x, p.y] as [number, number]), SAL_CORNER_ROUND);
 }
 
 function svgCrystalPath(pts: { x: number; y: number }[]): string {
   if (pts.length < 3) return '';
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`;
-  return d + ' Z';
+  return getRoundedPolygonSvgPath(pts.map(p => [p.x, p.y] as [number, number]), SAL_CORNER_ROUND);
 }
 
 // Clustered Poisson-disc placement — natural salt-grain dispersal with
@@ -1153,9 +1152,9 @@ function generateSalCrystalPositions(W: number, H: number, config: PatternConfig
     // sharp. Larger plates get slightly more jaggedness (fracture feel).
     const shapeRoll = rng.range(0, 1);
     let sides: number, jagged: number;
-    if (shapeRoll < 0.60) { sides = 4; jagged = 0.06; }
-    else if (shapeRoll < 0.85) { sides = 6; jagged = 0.09; }
-    else { sides = 8; jagged = 0.13; }
+    if (shapeRoll < 0.60) { sides = 5; jagged = 0.06; }
+    else if (shapeRoll < 0.85) { sides = 7; jagged = 0.09; }
+    else { sides = 9; jagged = 0.13; }
     if (sizeRoll >= 0.95) jagged += 0.07; // large plates fracture more
     const aspect = rng.range(0.78, 1.18);
     const rotation = globalAngle + rng.range(0, Math.PI * 2);
