@@ -18,8 +18,8 @@ export default function App() {
 
   const handleSelectSeasoning = (seasoning: Seasoning) => {
     setSelectedSeasoning(seasoning);
-    // Beautifully normalize dimensions & scale per seasoning, retaining custom themes and seed continuity
-    setConfig(prev => getCuratedConfigForSeasoning(seasoning.id, 1.0, prev.themeMode, prev.layoutSeed));
+    // Always reset to light theme on seasoning selection
+    setConfig(prev => getCuratedConfigForSeasoning(seasoning.id, 1.0, 'light', prev.layoutSeed));
   };
 
   return (
@@ -29,9 +29,11 @@ export default function App() {
       <header className="pt-8 pb-4 px-6 md:px-12 bg-[#F6F5F0]">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-baseline md:justify-between gap-2 border-b border-neutral-200/60 pb-5">
           <div className="space-y-1">
-            <h1 className="text-[13px] font-black tracking-[0.2em] text-neutral-950 uppercase font-display">
-              PADRÕES RAGGA
-            </h1>
+            <img
+              src="/assets/grupo-logo.svg"
+              alt="Grupo Ragga"
+              className="h-7 w-auto"
+            />
             <p className="text-[10px] font-mono tracking-widest text-neutral-400 uppercase leading-none">
               IDENTIDADE MICROSCÓPICA DAS VERTICAIS
             </p>
@@ -75,7 +77,12 @@ export default function App() {
                   }
                   id={`seasoning-btn-${t.id}`}
                 >
-                  <span className="text-sm shrink-0 leading-none">{t.emoji}</span>
+                  <img
+                    src={`/assets/icon-${t.id}.svg`}
+                    alt=""
+                    aria-hidden="true"
+                    className={`h-5 w-auto shrink-0 ${isSelected ? 'brightness-0 invert' : ''}`}
+                  />
                   <span className="font-display text-[11px] font-medium uppercase tracking-wider">{t.name}</span>
                 </button>
               );
