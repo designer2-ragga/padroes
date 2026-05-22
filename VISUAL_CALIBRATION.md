@@ -443,3 +443,101 @@ This commit MOVED Sal off the legacy particle dispatch onto the canonical pipeli
 **Pixel parity:** intentionally NOT byte-identical. Sal PNG bytes dropped from ~1.5 MB to ~56 KB (28× smaller) because crystalline polygons compress dramatically better than organic-blob edges + camera-grain noise.
 
 **Future phase B (separate commit):** consider adding internal cleavage lines on large crystal plates (thin strokes suggesting crystallographic cleavage planes) to push the microscopy realism further.
+
+---
+
+## Snapshot capture protocol (canonical)
+
+The 12 baselines in `baseline-snapshots/` are captured at **canonical configs** —
+explicit `PARAMETERS` registry defaults + `seed=42`, NOT inherited from the curated
+`getCuratedConfigForSeasoning` output. This eliminates the cross-session drift
+that previously showed Sal as 2/12 false-positive divergence on every fresh
+verification run.
+
+**The canonical config per spice** (matches `src/engine/parameters.ts`
+`PARAMETERS.{param}.defaults[spice]`):
+
+| spice      | zoom | density | rotation | lineWidth | voronoiRoundedness |
+|------------|-----:|--------:|---------:|----------:|-------------------:|
+| sal        |  120 |      18 |        0 |       1.6 |                  0 |
+| louro      |  220 |       9 |        0 |       2.2 |                 44 |
+| alho       |  180 |      14 |        0 |       1.4 |                 28 |
+| pimenta    |  340 |      22 |        0 |       1.8 |                 52 |
+| manjericao |  260 |      16 |        0 |       1.5 |                 40 |
+| oregano    |  140 |      28 |        0 |       1.3 |                 35 |
+
+All captures use `themeMode ∈ {light, dark}` and `layoutSeed = 42`.
+
+**The canonical capture eval** (paste into `preview_eval` against the running
+`micro-patterns` preview server):
+
+```js
+(async function() {
+  const CANONICAL = {
+    sal:        { zoom: 120, density: 18, lineWidth: 1.6, voronoiRoundedness: 0  },
+    louro:      { zoom: 220, density: 9,  lineWidth: 2.2, voronoiRoundedness: 44 },
+    alho:       { zoom: 180, density: 14, lineWidth: 1.4, voronoiRoundedness: 28 },
+    pimenta:    { zoom: 340, density: 22, lineWidth: 1.8, voronoiRoundedness: 52 },
+    manjericao: { zoom: 260, density: 16, lineWidth: 1.5, voronoiRoundedness: 40 },
+    oregano:    { zoom: 140, density: 28, lineWidth: 1.3, voronoiRoundedness: 35 },
+  };
+  const spiceMap = ['Sal','Louro','Alho','Pimenta','Manjericão','Orégano'];
+  const ids =      ['sal','louro','alho','pimenta','manjericao','oregano'];
+  const themes = ['light','dark'];
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  const root = document.getElementById('root');
+  const key = Object.keys(root).find(k => k.startsWith('__reactContainer'));
+  const getSet = () => {
+    let setConfig;
+    const walk = (node, depth=0) => {
+      if (!node || depth > 30) return;
+      if (node.type && node.type.name === 'App' && node.memoizedState) {
+        let cur = node.memoizedState; let idx = 0;
+        while (cur) { if (idx === 1 && cur.queue) setConfig = cur.queue.dispatch; cur = cur.next; idx++; }
+      }
+      if (node.child) walk(node.child, depth+1);
+      if (node.sibling) walk(node.sibling, depth+1);
+    };
+    walk(root[key].stateNode.current);
+    return setConfig;
+  };
+  window.__snapshots = {};
+  const buttons = Array.from(document.querySelectorAll('button')).filter(b => spiceMap.some(n => b.textContent?.includes(n)));
+  for (let s = 0; s < spiceMap.length; s++) {
+    const id = ids[s];
+    const cfg = CANONICAL[id];
+    buttons.find(b => b.textContent?.includes(spiceMap[s]))?.click();
+    await wait(300);
+    for (const theme of themes) {
+      const setConfig = getSet();
+      setConfig({
+        zoom: cfg.zoom, density: cfg.density, rotation: 0,
+        lineWidth: cfg.lineWidth, voronoiRoundedness: cfg.voronoiRoundedness,
+        themeMode: theme, layoutSeed: 42,
+      });
+      await wait(500);
+      window.__snapshots[`${id}-${theme}`] = document.querySelector('canvas').toDataURL('image/png');
+    }
+  }
+  return { count: Object.keys(window.__snapshots).length };
+})()
+```
+
+After the eval completes, extract the snapshots with a second eval:
+
+```js
+Object.entries(window.__snapshots).map(([k,d]) => `${k}:::${d.replace(/^data:image\/png;base64,/, '')}`).join('|||')
+```
+
+The blob exceeds the inline-return cap and is saved to a `tool-results/*.txt`
+file. Pass that path to `scripts/decode-baseline.cjs` to overwrite the 12 PNGs,
+or to `scripts/diff-snapshots.cjs` to verify byte parity against the existing
+baselines.
+
+**Determinism contract.** Two consecutive captures of the canonical eval within
+the same session produce byte-identical results for all 12 snapshots. This has
+been verified at commit `S`. The previous capture protocol (using
+`{...config, layoutSeed: 42, themeMode: theme}`) inherited curated
+`zoom/density/lineWidth/voronoiRoundedness/rotation` from the spice-button
+click, causing 2/12 Sal divergence on every fresh-session check. The canonical
+protocol replaces it.
