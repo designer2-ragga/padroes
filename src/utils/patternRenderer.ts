@@ -1494,9 +1494,9 @@ export function renderManjericaoMicroscopeGrid(
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['manjericao'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Theme: LIGHT bg=keyColor + structures=cream; DARK bg=cream + structures=keyColor
-  const bgColor = isDark ? CREAM : keyColor;
-  const shapeColor = isDark ? keyColor : CREAM;
+  // Theme: LIGHT = bright-field (cream bg + colored structures); DARK = dark-field (colored bg + cream structures)
+  const bgColor = isDark ? keyColor : CREAM;
+  const shapeColor = isDark ? CREAM : keyColor;
 
   // Solid background fill
   ctx.fillStyle = bgColor;
@@ -1559,8 +1559,8 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['manjericao'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  const bgColor = isDark ? CREAM : keyColor;
-  const shapeColor = isDark ? keyColor : CREAM;
+  const bgColor = isDark ? keyColor : CREAM;
+  const shapeColor = isDark ? CREAM : keyColor;
   const strokeW = strokeWidth(config.lineWidth || 1.5).toFixed(2); // absolute pixels, consistent across all spices
 
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
