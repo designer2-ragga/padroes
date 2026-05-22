@@ -1187,9 +1187,11 @@ export function renderSalMicroscopeGrid(
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['sal'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Theme: LIGHT bg=keyColor + crystals=cream; DARK bg=cream + crystals=keyColor
-  const bgColor = isDark ? CREAM : keyColor;
-  const shapeColor = isDark ? keyColor : CREAM;
+  // Polarity (non-tiling spice): LIGHT = cream bg + keyColor crystals (bright-field);
+  // DARK = keyColor bg + cream crystals (dark-field). Matches the perceived polarity
+  // of the Voronoi spices (Louro/Alho/Pimenta), where cells tile the canvas.
+  const bgColor = isDark ? keyColor : CREAM;
+  const shapeColor = isDark ? CREAM : keyColor;
 
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, W, H);
@@ -1206,8 +1208,9 @@ function generateSalSVGPatternString(config: PatternConfig, width: number, heigh
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['sal'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  const bgColor = isDark ? CREAM : keyColor;
-  const shapeColor = isDark ? keyColor : CREAM;
+  // Mirrors canvas — see renderSalMicroscopeGrid polarity note.
+  const bgColor = isDark ? keyColor : CREAM;
+  const shapeColor = isDark ? CREAM : keyColor;
 
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
   for (const c of generateSalCrystalPositions(width, height, config)) {
