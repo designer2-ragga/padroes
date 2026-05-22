@@ -37,39 +37,6 @@ export class SeededRandom {
   }
 }
 
-// Organic vacuole blob — replaces ctx.arc for garlic nuclei.
-// Consumes rng directly so canvas + SVG renderers stay in identical rng state.
-// n=7 points, dent=0.07 gives subtle biological wobble while preserving circular identity.
-function pathOrganicVacuole(ctx: CanvasRenderingContext2D, r: number, n: number, rng: SeededRandom, dent: number) {
-  const pts: { x: number; y: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i * Math.PI * 2) / n;
-    const w = rng.range(1 - dent, 1 + dent);
-    pts.push({ x: Math.cos(a) * r * w, y: Math.sin(a) * r * w });
-  }
-  ctx.beginPath();
-  ctx.moveTo((pts[n - 1].x + pts[0].x) / 2, (pts[n - 1].y + pts[0].y) / 2);
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[j].x) / 2, (pts[i].y + pts[j].y) / 2);
-  }
-  ctx.closePath();
-}
-
-function svgOrganicVacuole(cx: number, cy: number, r: number, n: number, rng: SeededRandom, dent: number): string {
-  const pts: { x: number; y: number }[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i * Math.PI * 2) / n;
-    const w = rng.range(1 - dent, 1 + dent);
-    pts.push({ x: cx + Math.cos(a) * r * w, y: cy + Math.sin(a) * r * w });
-  }
-  let d = `M ${((pts[n-1].x+pts[0].x)/2).toFixed(1)} ${((pts[n-1].y+pts[0].y)/2).toFixed(1)}`;
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    d += ` Q ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)} ${((pts[i].x+pts[j].x)/2).toFixed(1)} ${((pts[i].y+pts[j].y)/2).toFixed(1)}`;
-  }
-  return d + ' Z';
-}
 
 interface OKLCHColor {
   l: number;       // Lightness 0-1
