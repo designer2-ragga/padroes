@@ -1256,7 +1256,7 @@ function generateSalSVGPatternString(config: PatternConfig, width: number, heigh
 // ─── Manjericão (Basil) microscopy: chloroplast tissue + glandular trichomes ─
 
 // Shared organic blob points generator (consumed by canvas + SVG)
-function buildOrganicBlobPoints(
+function organicShape(
   cx: number, cy: number, radiusX: number, radiusY: number,
   pointsCount: number, seedStr: string, dentFactor: number
 ): { x: number; y: number }[] {
@@ -1521,7 +1521,7 @@ export function renderManjericaoMicroscopeGrid(
   ctx.lineWidth = strokeWidth(config.lineWidth || 1.5); // absolute pixels, consistent across all spices
   ctx.lineJoin = 'round';
   for (const m of layout.membranes) {
-    const pts = buildOrganicBlobPoints(m.cx, m.cy, m.rx, m.ry, m.points, m.seed, 0.28);
+    const pts = organicShape(m.cx, m.cy, m.rx, m.ry, m.points, m.seed, 0.28);
     pathFromBlobPoints(ctx, pts);
     ctx.stroke();
   }
@@ -1529,7 +1529,7 @@ export function renderManjericaoMicroscopeGrid(
   // Layer 2: Medium chloroplast clusters (filled organic blobs)
   ctx.fillStyle = shapeColor;
   for (const c of layout.chloroplasts) {
-    const pts = buildOrganicBlobPoints(c.x, c.y, c.rx, c.ry, c.points, c.seed, 0.22);
+    const pts = organicShape(c.x, c.y, c.rx, c.ry, c.points, c.seed, 0.22);
     pathFromBlobPoints(ctx, pts);
     ctx.fill();
   }
@@ -1580,14 +1580,14 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
 
   // Layer 1: membrane outlines (stroke only)
   for (const m of layout.membranes) {
-    const pts = buildOrganicBlobPoints(m.cx, m.cy, m.rx, m.ry, m.points, m.seed, 0.28);
+    const pts = organicShape(m.cx, m.cy, m.rx, m.ry, m.points, m.seed, 0.28);
     const d = svgFromBlobPoints(pts);
     if (d) content += `    <path d="${d}" fill="none" stroke="${shapeColor}" stroke-width="${strokeW}" stroke-linejoin="round" />\n`;
   }
 
   // Layer 2: medium chloroplast clusters (filled)
   for (const c of layout.chloroplasts) {
-    const pts = buildOrganicBlobPoints(c.x, c.y, c.rx, c.ry, c.points, c.seed, 0.22);
+    const pts = organicShape(c.x, c.y, c.rx, c.ry, c.points, c.seed, 0.22);
     const d = svgFromBlobPoints(pts);
     if (d) content += `    <path d="${d}" fill="${shapeColor}" />\n`;
   }
