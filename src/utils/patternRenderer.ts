@@ -1567,7 +1567,7 @@ export function renderManjericaoMicroscopeGrid(
     const grainRng = new SeededRandom(g.seed);
     ctx.save();
     ctx.translate(g.x, g.y);
-    pathOrganicVacuole(ctx, g.r, 6, grainRng, 0.18);
+    pathFromBlobPoints(ctx, organicShape(0, 0, g.r, g.r, 6, grainRng, 0.18));
     ctx.fill();
     ctx.restore();
   }
@@ -1621,7 +1621,7 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   // Layer 4: small grains (organic vacuoles)
   for (const g of layout.grains) {
     const grainRng = new SeededRandom(g.seed);
-    const d = svgOrganicVacuole(g.x, g.y, g.r, 6, grainRng, 0.18);
+    const d = svgFromBlobPoints(organicShape(g.x, g.y, g.r, g.r, 6, grainRng, 0.18));
     content += `    <path d="${d}" fill="${shapeColor}" />\n`;
   }
 
