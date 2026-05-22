@@ -49,7 +49,7 @@ export const SEASONINGS_OKLCH: Record<string, OKLCHColor> = {
   sal: { l: 0.48, c: 0.22, h: 25, fallback: '#B81A20' },
   louro: { l: 0.38, c: 0.18, h: 250, fallback: '#1E40AF' },
   alho: { l: 0.72, c: 0.16, h: 85, fallback: '#D4A010' },
-  pimenta: { l: 0.58, c: 0.21, h: 40, fallback: '#E86820' },
+  pimenta: { l: 0.665, c: 0.177, h: 45, fallback: '#E86820' },
   manjericao: { l: 0.35, c: 0.16, h: 350, fallback: '#8A2040' },
   oregano: { l: 0.71, c: 0.17, h: 115, fallback: '#93B629' }
 };
