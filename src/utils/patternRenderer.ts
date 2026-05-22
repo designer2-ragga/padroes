@@ -1258,17 +1258,34 @@ function generateSalSVGPatternString(config: PatternConfig, width: number, heigh
 // Shared organic blob points generator (consumed by canvas + SVG)
 function organicShape(
   cx: number, cy: number, radiusX: number, radiusY: number,
-  pointsCount: number, seedStr: string, dentFactor: number
+  pointsCount: number, seedOrRng: string | SeededRandom, dentFactor: number
 ): { x: number; y: number }[] {
-  const rng = new SeededRandom(seedStr);
+  // Dual seed-entry: pass a seedStr to get an isolated rng instance (existing
+  // callers; matches the prior buildOrganicBlobPoints behavior), OR pass a
+  // shared SeededRandom to consume from an external stream (new callers
+  // migrated from pathOrganicVacuole/svgOrganicVacuole, which use a
+  // per-cell/per-particle rng shared across multiple shape calls).
+  const rng = typeof seedOrRng === 'string' ? new SeededRandom(seedOrRng) : seedOrRng;
   const pts: { x: number; y: number }[] = [];
   for (let i = 0; i < pointsCount; i++) {
     const angle = (i * Math.PI * 2) / pointsCount;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
-    const baseR = Math.sqrt(1 / ((cos * cos) / (radiusX * radiusX) + (sin * sin) / (radiusY * radiusY)));
     const wave = rng.range(1 - dentFactor, 1 + dentFactor);
-    pts.push({ x: cx + baseR * wave * cos, y: cy + baseR * wave * sin });
+    if (radiusX === radiusY) {
+      // Circular fast-path — matches pathOrganicVacuole's float operation
+      // order exactly (cos * r * w, left-to-right). For rx=ry the elliptical
+      // radius equation would collapse algebraically to r but NOT bit-equal
+      // because cos² + sin² in IEEE 754 is 1+ε. This branch preserves
+      // byte-identical parity for vacuole-migrated callers.
+      pts.push({ x: cx + cos * radiusX * wave, y: cy + sin * radiusX * wave });
+    } else {
+      // Elliptical path — original organicShape math, retained verbatim for
+      // existing callers (Manjericão membranes + chloroplasts always have
+      // rx ≠ ry because each is an independent rng.range draw).
+      const baseR = Math.sqrt(1 / ((cos * cos) / (radiusX * radiusX) + (sin * sin) / (radiusY * radiusY)));
+      pts.push({ x: cx + baseR * wave * cos, y: cy + baseR * wave * sin });
+    }
   }
   return pts;
 }
