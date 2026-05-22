@@ -903,7 +903,7 @@ export function renderPimentaMicroscopeGrid(
       ctx.save();
       ctx.translate(particle.x, particle.y);
       // Organic blob for particle (similar to vacuole, but smaller and with 5 control points)
-      pathOrganicVacuole(ctx, particle.r, 5, particleRng, 0.06);
+      pathFromBlobPoints(ctx, organicShape(0, 0, particle.r, particle.r, 5, particleRng, 0.06));
       ctx.fill();
       ctx.restore();
     }
@@ -1768,7 +1768,7 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
 
     for (const particle of particles) {
       // Organic blob path for particle (same as canvas: 5 control points, 0.06 wobble)
-      const particlePath = svgOrganicVacuole(particle.x, particle.y, particle.r, 5, particleRng, 0.06);
+      const particlePath = svgFromBlobPoints(organicShape(particle.x, particle.y, particle.r, particle.r, 5, particleRng, 0.06));
       tileContent += `    <path d="${particlePath}" fill="${particleColor}" />\n`;
     }
   }
