@@ -632,41 +632,57 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   return svgContent;
 }
 
-// ─── Pimenta swooshes — chili-silhouette hooks ──────────────────────────────
+// ─── Pimenta swooshes — chili silhouettes flowing as a wind field ──────────
 //
 // Each pimenta is a minimalist tapered curve — wide rounded base, pointed
-// tip, curving like a comma / bracket / Nike swoosh. The iconic chili
-// silhouette translated to a graphic mark. Scattered across the canvas at
-// varied angles and curve directions, they create the "angry-wave" rhythm
-// the brand metaphor demands (Marketing + Sales = "queima, marca presença,
-// acende o fogo") through fluid sharp shapes rather than round droplets.
+// tip, curving like a comma / bracket / Nike swoosh. Orientations are NOT
+// random: every swoosh follows a deterministic 2D flow field, like wind
+// barbs on a meteorological chart. The result reads as "swarming pimentas
+// blown by a directional current" — fluid, coherent, with global flow
+// patterns and local turbulence. Honors brand metaphor (Marketing + Sales =
+// "acende o fogo, marca presença") through sharp shapes in directional flow.
 
 interface PimentaSwoosh {
   baseX: number;        // wide-end position
   baseY: number;
   length: number;       // base-to-tip distance
-  angle: number;        // orientation (base → tip)
+  angle: number;        // orientation from flow field (base → tip)
   curve: number;        // perpendicular spine offset (signed — left/right hook)
   baseWidth: number;    // width at the base (tapers to 0 at tip)
 }
 
-const PIMENTA_DENSITY_FACTOR = 1.2;        // → ~14 swooshes at curated default
+const PIMENTA_DENSITY_FACTOR = 2.2;        // → ~25 swooshes at curated default — enough to read the flow
 const PIMENTA_BASE_WIDTH_RATIO = 0.30;     // base width / length — slender chili silhouette
+const PIMENTA_FLOW_SCALE_RATIO = 0.45;     // flow-field scale / minDim — controls how smoothly the wind varies
+
+// Deterministic 2D flow field — smooth angular variation across the canvas.
+// Sum of low-frequency sines gives smooth currents with natural turbulence.
+// Same seed always produces the same wind map.
+function pimentaFlowAngle(x: number, y: number, scale: number, seed: number): number {
+  const sx = x / scale;
+  const sy = y / scale;
+  const p1 = seed * 0.137;
+  const p2 = seed * 0.291;
+  const u = Math.sin(sx + p1) + Math.sin(sy * 0.7 + p2);
+  const v = Math.cos(sx * 0.7 + p2) + Math.cos(sy + p1);
+  return Math.atan2(v, u);
+}
 
 function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): PimentaSwoosh[] {
   const seed = Math.round(config.layoutSeed ?? 1);
-  const rng = new SeededRandom('pimenta_swoosh_v3_' + seed);
+  const rng = new SeededRandom('pimenta_flow_v4_' + seed);
   const density = config.density ?? 22;
   const zoom = config.zoom ?? 100;
   const minDim = Math.min(W, H);
+  const flowScale = minDim * PIMENTA_FLOW_SCALE_RATIO;
 
-  // Base length — ~8% of minDim at zoom=100, scales with sqrt of zoom.
-  // At default (zoom=340): ~177px tip-to-base. Long enough to read as chili
-  // silhouette, short enough for ~14 to coexist with breathing room.
-  const baseLen = minDim * 0.08 * scaleAtZoom(1, zoom, 'sqrt');
-  const desiredCount = Math.max(6, targetCount(density, W * H, PIMENTA_DENSITY_FACTOR, zoom, 0.5));
+  // Base length — ~6% of minDim at zoom=100, scales with sqrt of zoom.
+  // At default (zoom=340): ~133px tip-to-base. Smaller than v3 to allow more
+  // swooshes to show the flow direction clearly.
+  const baseLen = minDim * 0.06 * scaleAtZoom(1, zoom, 'sqrt');
+  const desiredCount = Math.max(8, targetCount(density, W * H, PIMENTA_DENSITY_FACTOR, zoom, 0.5));
 
-  // Size-aware Poisson-disc placement — uses swoosh length as effective spacing.
+  // Size-aware Poisson-disc placement — uniform scatter to fill the field
   const minDist = baseLen * 0.55;
   const offX = minDist * 2, offY = minDist * 2;
   const cellSize = minDist / Math.SQRT2;
@@ -686,7 +702,7 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
         const n = grid[j * gW + i];
         if (n) {
           const dx = px - n.x, dy = py - n.y;
-          const minSep = (r + n.r) * 0.45; // small overlap allowed — swooshes are tapered
+          const minSep = (r + n.r) * 0.50;
           if (dx * dx + dy * dy < minSep * minSep) return false;
         }
       }
@@ -698,14 +714,17 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
   const place = (px: number, py: number): boolean => {
     const sizeRoll = rng.range(0, 1);
     let length: number;
-    if (sizeRoll < 0.70) length = baseLen * rng.range(0.55, 0.90);       // 70% small
-    else if (sizeRoll < 0.95) length = baseLen * rng.range(0.90, 1.25);  // 25% medium
-    else length = baseLen * rng.range(1.25, 1.65);                       // 5% large
+    if (sizeRoll < 0.70) length = baseLen * rng.range(0.65, 0.95);       // 70% small
+    else if (sizeRoll < 0.95) length = baseLen * rng.range(0.95, 1.25);  // 25% medium
+    else length = baseLen * rng.range(1.25, 1.55);                       // 5% large
     if (!isValid(px, py, length)) return false;
 
-    const angle = rng.range(0, Math.PI * 2);
-    const curveDir = rng.range(0, 1) < 0.5 ? -1 : 1;
-    const curve = curveDir * length * rng.range(0.28, 0.48);  // strong hook (Nike-swoosh range)
+    // FLOW-ALIGNED orientation: flow field + small jitter for natural variation
+    const angle = pimentaFlowAngle(px, py, flowScale, seed) + rng.range(-0.25, 0.25);
+    // Curve direction also tied to flow (vorticity-like) — pimentas in the same
+    // flow region hook the same way, creating coherent local rhythm
+    const curveDir = Math.sin(pimentaFlowAngle(px + flowScale, py, flowScale, seed) - angle) < 0 ? -1 : 1;
+    const curve = curveDir * length * rng.range(0.30, 0.50);
     const baseWidth = length * PIMENTA_BASE_WIDTH_RATIO;
 
     swooshes.push({ baseX: px, baseY: py, length, angle, curve, baseWidth });
@@ -713,24 +732,11 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
     return true;
   };
 
-  // 2 cluster centers + 70% cluster sampling / 30% free scatter
-  const clusterCenters: { x: number; y: number }[] = [];
-  for (let c = 0; c < 2; c++) {
-    clusterCenters.push({ x: rng.range(0.18, 0.82) * W, y: rng.range(0.18, 0.82) * H });
-    place(clusterCenters[c].x, clusterCenters[c].y);
-  }
-
+  // Uniform Poisson scatter — no cluster centers, so the flow is visible everywhere
   let attempts = 0;
   while (swooshes.length < desiredCount && attempts < desiredCount * 80) {
     attempts++;
-    if (rng.range(0, 1) < 0.70) {
-      const cc = clusterCenters[Math.floor(rng.range(0, clusterCenters.length))];
-      const spread = Math.min(W, H) * rng.range(0.05, 0.45);
-      const a = rng.range(0, Math.PI * 2);
-      place(cc.x + Math.cos(a) * spread * rng.range(0, 1), cc.y + Math.sin(a) * spread * rng.range(0, 1));
-    } else {
-      place(rng.range(0, W), rng.range(0, H));
-    }
+    place(rng.range(0, W), rng.range(0, H));
   }
 
   return swooshes;
