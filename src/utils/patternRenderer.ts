@@ -1238,150 +1238,117 @@ function svgFromBlobPoints(pts: { x: number; y: number }[]): string {
 // negative space. The brand metaphor (Social = "folha do bem, leveza") is
 // honored by breathable open composition.
 
-interface Vein {
-  x1: number; y1: number;       // start
-  cx1: number; cy1: number;     // control 1
-  cx2: number; cy2: number;     // control 2
-  x2: number; y2: number;       // end
-  thickness: number;
+// Basil rosette: top-down view of a basil plant. Basil has DECUSSATE
+// PHYLLOTAXIS — leaf pairs grow opposite (180°) at each node, with
+// successive nodes rotated 90°. From above, this produces a cross-shaped
+// (4-leaf), star-shaped (6-leaf), or fuller (8-leaf) rosette depending on
+// how many nodes are visible. Each rosette is graphically a "small basil
+// plant from above" — multiple groups, each different in leaf count,
+// rotation and size, populating the canvas.
+
+interface BasilLeaf {
+  cx: number; cy: number;   // base attachment point (rosette center)
+  angle: number;            // direction the tip points (from center outward)
+  length: number;
+  maxWidth: number;         // max half-width at widest point (ovate leaf profile)
 }
 
 interface BasilLayout {
-  veins: Vein[];
+  leaves: BasilLeaf[];
 }
 
-// Venation density and proportion constants
-const VENATION_GROUP_FACTOR = 0.25;       // → ~2 leaf groups at curated default
-const VENATION_SEC_THICKNESS = 0.55;      // secondary thickness / main thickness
-const VENATION_TER_THICKNESS = 0.30;      // tertiary thickness / main thickness
-const VENATION_TERTIARY_PROB = 0.30;      // fraction of secondaries that sprout a tertiary
+// Rosette density and proportion constants
+const ROSETTE_DENSITY_FACTOR = 0.4;        // → ~6 rosettes at default
+const LEAF_WIDTH_RATIO = 0.22;             // maxWidth / length — basil leaf proportions
 
-// Evaluate cubic Bezier curve at parameter t ∈ [0, 1]
-function bezierPoint(v: Vein, t: number): { x: number; y: number } {
-  const mt = 1 - t;
+// Leaf geometry — 6 anchor points defining a cubic-Bezier ovate leaf.
+// Cubic with two width control points (closer to base wider, closer to tip
+// narrower) gives the characteristic basil-leaf silhouette: rounded near
+// base, tapered to pointed tip.
+function leafGeometry(l: BasilLeaf): {
+  base: [number, number];
+  outA: [number, number]; outB: [number, number];
+  tip:  [number, number];
+  inA:  [number, number]; inB:  [number, number];
+} {
+  const dx = Math.cos(l.angle), dy = Math.sin(l.angle);
+  const px = -dy, py = dx;
+  const t1 = 0.30;  // closer to base
+  const t2 = 0.70;  // closer to tip
+  const w1 = l.maxWidth * 1.00;  // wider near base
+  const w2 = l.maxWidth * 0.55;  // narrower near tip
+  const sp1X = l.cx + dx * l.length * t1;
+  const sp1Y = l.cy + dy * l.length * t1;
+  const sp2X = l.cx + dx * l.length * t2;
+  const sp2Y = l.cy + dy * l.length * t2;
   return {
-    x: mt * mt * mt * v.x1 + 3 * mt * mt * t * v.cx1 + 3 * mt * t * t * v.cx2 + t * t * t * v.x2,
-    y: mt * mt * mt * v.y1 + 3 * mt * mt * t * v.cy1 + 3 * mt * t * t * v.cy2 + t * t * t * v.y2,
-  };
-}
-
-// Evaluate cubic Bezier tangent at parameter t (derivative, not normalized)
-function bezierTangent(v: Vein, t: number): { x: number; y: number } {
-  const mt = 1 - t;
-  return {
-    x: 3 * mt * mt * (v.cx1 - v.x1) + 6 * mt * t * (v.cx2 - v.cx1) + 3 * t * t * (v.x2 - v.cx2),
-    y: 3 * mt * mt * (v.cy1 - v.y1) + 6 * mt * t * (v.cy2 - v.cy1) + 3 * t * t * (v.y2 - v.cy2),
+    base: [l.cx, l.cy],
+    outA: [sp1X + px * w1, sp1Y + py * w1],
+    outB: [sp2X + px * w2, sp2Y + py * w2],
+    tip:  [l.cx + dx * l.length, l.cy + dy * l.length],
+    inA:  [sp2X - px * w2, sp2Y - py * w2],
+    inB:  [sp1X - px * w1, sp1Y - py * w1],
   };
 }
 
 function generateBasilLayout(W: number, H: number, config: PatternConfig): BasilLayout {
   const seed = Math.round(config.layoutSeed ?? 1);
-  const rng = new SeededRandom('basil_venation_v6_' + seed);
+  const rng = new SeededRandom('basil_rosette_v7_' + seed);
   const density = config.density ?? 16;
   const zoom = config.zoom ?? 100;
-  const viewportArea = W * H;
   const minDim = Math.min(W, H);
-  const baseStroke = strokeWidth(config.lineWidth || 1.5);
   const sizeScale = scaleAtZoom(1, zoom, 'sqrt');
 
-  // Number of leaf-vein groups across the canvas (each = 1 main + N secondaries)
-  const nGroups = Math.max(1, targetCount(density, viewportArea, VENATION_GROUP_FACTOR, zoom, 0.6));
+  // Per-rosette leaf length (each rosette has its own scale around this base)
+  const baseLeafLen = minDim * 0.10 * sizeScale;
+  const nRosettes = Math.max(2, targetCount(density, W * H, ROSETTE_DENSITY_FACTOR, zoom, 0.6));
 
-  const veins: Vein[] = [];
+  const leaves: BasilLeaf[] = [];
+  const placedCenters: { x: number; y: number; r: number }[] = [];
 
-  for (let g = 0; g < nGroups; g++) {
-    // Group center — distribute roughly across canvas
-    const gcx = rng.range(0.18, 0.82) * W;
-    const gcy = rng.range(0.18, 0.82) * H;
+  const isValid = (px: number, py: number, r: number) => {
+    for (const pc of placedCenters) {
+      const ddx = px - pc.x, ddy = py - pc.y;
+      const minSep = (r + pc.r) * 0.85; // rosettes can lightly overlap leaves but not centers
+      if (ddx * ddx + ddy * ddy < minSep * minSep) return false;
+    }
+    return true;
+  };
 
-    // Main vein parameters
-    const mainAngle = rng.range(0, Math.PI * 2);
-    const mainLen = rng.range(0.40, 0.65) * minDim * sizeScale;
-    const halfLen = mainLen / 2;
-    const cosA = Math.cos(mainAngle);
-    const sinA = Math.sin(mainAngle);
-    const startX = gcx - cosA * halfLen;
-    const startY = gcy - sinA * halfLen;
-    const endX = gcx + cosA * halfLen;
-    const endY = gcy + sinA * halfLen;
+  let attempts = 0;
+  while (placedCenters.length < nRosettes && attempts < nRosettes * 120) {
+    attempts++;
+    const cx = rng.range(0.10, 0.90) * W;
+    const cy = rng.range(0.10, 0.90) * H;
 
-    // Gentle arc bias (leaves curve in real life)
-    const perpX = -sinA, perpY = cosA;
-    const arcBias = rng.range(-0.12, 0.12) * mainLen;
-    const main: Vein = {
-      x1: startX, y1: startY,
-      cx1: startX + (endX - startX) * 0.33 + perpX * arcBias,
-      cy1: startY + (endY - startY) * 0.33 + perpY * arcBias,
-      cx2: startX + (endX - startX) * 0.66 + perpX * arcBias * 0.6,
-      cy2: startY + (endY - startY) * 0.66 + perpY * arcBias * 0.6,
-      x2: endX, y2: endY,
-      thickness: baseStroke,
-    };
-    veins.push(main);
+    // Per-rosette size variation
+    const sizeRoll = rng.range(0, 1);
+    let scale: number;
+    if (sizeRoll < 0.55) scale = rng.range(0.55, 0.85);       // 55% small
+    else if (sizeRoll < 0.90) scale = rng.range(0.85, 1.15);  // 35% medium
+    else scale = rng.range(1.15, 1.55);                       // 10% large
+    const rosetteSize = baseLeafLen * scale;
 
-    // Secondary branches (6-10) sprouting from points along the main vein
-    const nSec = 6 + Math.floor(rng.range(0, 5));
-    for (let s = 0; s < nSec; s++) {
-      // Attachment point along the main, biased to mid-section
-      const t = rng.range(0.15, 0.85);
-      const pt = bezierPoint(main, t);
-      const tan = bezierTangent(main, t);
-      const tanLen = Math.sqrt(tan.x * tan.x + tan.y * tan.y) || 1;
-      const tnx = tan.x / tanLen;
-      const tny = tan.y / tanLen;
-      // Perpendicular outward (alternating sides — left/right alternation reads as venation)
-      const side = (s % 2 === 0) ? 1 : -1;
-      const pnx = -tny * side;
-      const pny = tnx * side;
-      // Forward component mixed with outward perpendicular (25–55° from main tangent)
-      const forwardWeight = rng.range(0.35, 0.75);
-      const dirX = pnx + tnx * forwardWeight;
-      const dirY = pny + tny * forwardWeight;
-      const dirLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
-      const dnx = dirX / dirLen;
-      const dny = dirY / dirLen;
+    if (!isValid(cx, cy, rosetteSize)) continue;
+    placedCenters.push({ x: cx, y: cy, r: rosetteSize });
 
-      const secLen = rng.range(0.12, 0.28) * minDim * sizeScale;
-      const secEndX = pt.x + dnx * secLen;
-      const secEndY = pt.y + dny * secLen;
+    // Leaf count: 4 (1-2 visible nodes), 6 (3 nodes), or 8 (4 nodes)
+    const countRoll = rng.range(0, 1);
+    let nLeaves: number;
+    if (countRoll < 0.45) nLeaves = 4;        // 45% — youngest 4-leaf cross
+    else if (countRoll < 0.75) nLeaves = 6;   // 30% — 6-leaf rosette
+    else nLeaves = 8;                          // 25% — full 8-leaf rosette
 
-      // Slight bend
-      const secPerpX = -dny, secPerpY = dnx;
-      const secBend = rng.range(-0.10, 0.10) * secLen;
-      const sec: Vein = {
-        x1: pt.x, y1: pt.y,
-        cx1: pt.x + (secEndX - pt.x) * 0.4 + secPerpX * secBend,
-        cy1: pt.y + (secEndY - pt.y) * 0.4 + secPerpY * secBend,
-        cx2: pt.x + (secEndX - pt.x) * 0.7 + secPerpX * secBend * 0.6,
-        cy2: pt.y + (secEndY - pt.y) * 0.7 + secPerpY * secBend * 0.6,
-        x2: secEndX, y2: secEndY,
-        thickness: baseStroke * VENATION_SEC_THICKNESS,
-      };
-      veins.push(sec);
-
-      // Tertiary fragment (~30%): continues from secondary tip with slight angle
-      if (rng.range(0, 1) < VENATION_TERTIARY_PROB) {
-        const terAngle = rng.range(-0.5, 0.5); // ±28°
-        const terCos = Math.cos(terAngle);
-        const terSin = Math.sin(terAngle);
-        const terNx = dnx * terCos - dny * terSin;
-        const terNy = dnx * terSin + dny * terCos;
-        const terLen = rng.range(0.04, 0.10) * minDim * sizeScale;
-        const terEndX = secEndX + terNx * terLen;
-        const terEndY = secEndY + terNy * terLen;
-        const ter: Vein = {
-          x1: secEndX, y1: secEndY,
-          cx1: secEndX + terNx * terLen * 0.3, cy1: secEndY + terNy * terLen * 0.3,
-          cx2: secEndX + terNx * terLen * 0.6, cy2: secEndY + terNy * terLen * 0.6,
-          x2: terEndX, y2: terEndY,
-          thickness: baseStroke * VENATION_TER_THICKNESS,
-        };
-        veins.push(ter);
-      }
+    const baseRot = rng.range(0, Math.PI * 2);
+    for (let i = 0; i < nLeaves; i++) {
+      const angle = baseRot + (i / nLeaves) * Math.PI * 2 + rng.range(-0.08, 0.08);
+      const lenVar = rosetteSize * rng.range(0.85, 1.15);
+      const widthVar = lenVar * LEAF_WIDTH_RATIO * rng.range(0.85, 1.10);
+      leaves.push({ cx, cy, angle, length: lenVar, maxWidth: widthVar });
     }
   }
 
-  return { veins };
+  return { leaves };
 }
 
 export function renderManjericaoMicroscopeGrid(
@@ -1390,7 +1357,7 @@ export function renderManjericaoMicroscopeGrid(
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['manjericao'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Non-tiling polarity: LIGHT = cream bg + colored veins; DARK = colored bg + cream veins
+  // Non-tiling polarity: LIGHT = cream bg + colored leaves; DARK = colored bg + cream leaves
   const bgColor = isDark ? keyColor : CREAM;
   const shapeColor = isDark ? CREAM : keyColor;
 
@@ -1398,16 +1365,16 @@ export function renderManjericaoMicroscopeGrid(
   ctx.fillRect(0, 0, W, H);
 
   const layout = generateBasilLayout(W, H, config);
-  ctx.strokeStyle = shapeColor;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.fillStyle = shapeColor;
 
-  for (const v of layout.veins) {
-    ctx.lineWidth = v.thickness;
+  for (const leaf of layout.leaves) {
+    const g = leafGeometry(leaf);
     ctx.beginPath();
-    ctx.moveTo(v.x1, v.y1);
-    ctx.bezierCurveTo(v.cx1, v.cy1, v.cx2, v.cy2, v.x2, v.y2);
-    ctx.stroke();
+    ctx.moveTo(g.base[0], g.base[1]);
+    ctx.bezierCurveTo(g.outA[0], g.outA[1], g.outB[0], g.outB[1], g.tip[0], g.tip[1]);
+    ctx.bezierCurveTo(g.inA[0], g.inA[1], g.inB[0], g.inB[1], g.base[0], g.base[1]);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
@@ -1422,8 +1389,10 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const layout = generateBasilLayout(width, height, config);
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
-  for (const v of layout.veins) {
-    content += `    <path d="M ${v.x1.toFixed(1)} ${v.y1.toFixed(1)} C ${v.cx1.toFixed(1)} ${v.cy1.toFixed(1)}, ${v.cx2.toFixed(1)} ${v.cy2.toFixed(1)}, ${v.x2.toFixed(1)} ${v.y2.toFixed(1)}" fill="none" stroke="${shapeColor}" stroke-width="${v.thickness.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" />\n`;
+  for (const leaf of layout.leaves) {
+    const g = leafGeometry(leaf);
+    const d = `M ${g.base[0].toFixed(1)} ${g.base[1].toFixed(1)} C ${g.outA[0].toFixed(1)} ${g.outA[1].toFixed(1)}, ${g.outB[0].toFixed(1)} ${g.outB[1].toFixed(1)}, ${g.tip[0].toFixed(1)} ${g.tip[1].toFixed(1)} C ${g.inA[0].toFixed(1)} ${g.inA[1].toFixed(1)}, ${g.inB[0].toFixed(1)} ${g.inB[1].toFixed(1)}, ${g.base[0].toFixed(1)} ${g.base[1].toFixed(1)} Z`;
+    content += `    <path d="${d}" fill="${shapeColor}" />\n`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
