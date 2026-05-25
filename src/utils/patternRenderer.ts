@@ -632,41 +632,42 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   return svgContent;
 }
 
-// ─── Pimenta capsaicin glands — punctate field, NOT mesh ────────────────────
+// ─── Pimenta swooshes — chili-silhouette hooks ──────────────────────────────
 //
-// Pepper microscopy shows capsaicin concentrated in discrete oil glands
-// (placental vesicles) — appearing as isolated bright droplets with a
-// clear inner core. The pattern reads as "bursts of heat in open field",
-// matching the brand metaphor: marketing/sales that "lights the fire" by
-// punctate presence rather than connected mesh. Single primitive (ring +
-// dot), size-varied tiers, cluster-biased Poisson-disc placement.
+// Each pimenta is a minimalist tapered curve — wide rounded base, pointed
+// tip, curving like a comma / bracket / Nike swoosh. The iconic chili
+// silhouette translated to a graphic mark. Scattered across the canvas at
+// varied angles and curve directions, they create the "angry-wave" rhythm
+// the brand metaphor demands (Marketing + Sales = "queima, marca presença,
+// acende o fogo") through fluid sharp shapes rather than round droplets.
 
-interface PimentaGland {
-  cx: number;
-  cy: number;
-  r: number;        // outer ring radius
+interface PimentaSwoosh {
+  baseX: number;        // wide-end position
+  baseY: number;
+  length: number;       // base-to-tip distance
+  angle: number;        // orientation (base → tip)
+  curve: number;        // perpendicular spine offset (signed — left/right hook)
+  baseWidth: number;    // width at the base (tapers to 0 at tip)
 }
 
-// Pimenta primitive ratios
-const PIMENTA_INNER_DOT_RATIO = 0.32;   // inner dot radius / outer radius
-const PIMENTA_RING_STROKE_MULT = 1.2;   // outer ring stroke width vs base lineWidth
-const PIMENTA_DENSITY_FACTOR = 1.2;     // → ~14 glands at curated default (zoom=340, density=22)
+const PIMENTA_DENSITY_FACTOR = 1.2;        // → ~14 swooshes at curated default
+const PIMENTA_BASE_WIDTH_RATIO = 0.30;     // base width / length — slender chili silhouette
 
-function generatePimentaGlands(W: number, H: number, config: PatternConfig): PimentaGland[] {
+function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): PimentaSwoosh[] {
   const seed = Math.round(config.layoutSeed ?? 1);
-  const rng = new SeededRandom('pimenta_glands_v1_' + seed);
+  const rng = new SeededRandom('pimenta_swoosh_v3_' + seed);
   const density = config.density ?? 22;
   const zoom = config.zoom ?? 100;
   const minDim = Math.min(W, H);
 
-  // Base outer radius: ~4.8% of minDim at curated default (zoom=340).
-  // Sqrt zoom scaling — glands grow with magnification but never dominate.
-  const baseR = minDim * 0.026 * scaleAtZoom(1, zoom, 'sqrt');
+  // Base length — ~8% of minDim at zoom=100, scales with sqrt of zoom.
+  // At default (zoom=340): ~177px tip-to-base. Long enough to read as chili
+  // silhouette, short enough for ~14 to coexist with breathing room.
+  const baseLen = minDim * 0.08 * scaleAtZoom(1, zoom, 'sqrt');
   const desiredCount = Math.max(6, targetCount(density, W * H, PIMENTA_DENSITY_FACTOR, zoom, 0.5));
 
-  // Size-aware Poisson-disc placement (mirrors Orégano post-fix algorithm).
-  // minDist sized for smallest possible gland (0.45 * baseR).
-  const minDist = baseR * 0.9;
+  // Size-aware Poisson-disc placement — uses swoosh length as effective spacing.
+  const minDist = baseLen * 0.55;
   const offX = minDist * 2, offY = minDist * 2;
   const cellSize = minDist / Math.SQRT2;
   const gW = Math.ceil((W + offX * 2) / cellSize) + 1;
@@ -685,7 +686,7 @@ function generatePimentaGlands(W: number, H: number, config: PatternConfig): Pim
         const n = grid[j * gW + i];
         if (n) {
           const dx = px - n.x, dy = py - n.y;
-          const minSep = (r + n.r) * 0.95; // edges may just touch, no overlap
+          const minSep = (r + n.r) * 0.45; // small overlap allowed — swooshes are tapered
           if (dx * dx + dy * dy < minSep * minSep) return false;
         }
       }
@@ -693,32 +694,37 @@ function generatePimentaGlands(W: number, H: number, config: PatternConfig): Pim
     return true;
   };
 
-  const glands: PimentaGland[] = [];
+  const swooshes: PimentaSwoosh[] = [];
   const place = (px: number, py: number): boolean => {
-    // Compute size first (size-tier roll), then validate
     const sizeRoll = rng.range(0, 1);
-    let r: number;
-    if (sizeRoll < 0.70) r = baseR * rng.range(0.45, 0.85);       // 70% small
-    else if (sizeRoll < 0.95) r = baseR * rng.range(0.85, 1.30);  // 25% medium
-    else r = baseR * rng.range(1.30, 1.80);                       // 5% large "active"
-    if (!isValid(px, py, r)) return false;
-    glands.push({ cx: px, cy: py, r });
-    grid[gIdx(px, py)] = { x: px, y: py, r };
+    let length: number;
+    if (sizeRoll < 0.70) length = baseLen * rng.range(0.55, 0.90);       // 70% small
+    else if (sizeRoll < 0.95) length = baseLen * rng.range(0.90, 1.25);  // 25% medium
+    else length = baseLen * rng.range(1.25, 1.65);                       // 5% large
+    if (!isValid(px, py, length)) return false;
+
+    const angle = rng.range(0, Math.PI * 2);
+    const curveDir = rng.range(0, 1) < 0.5 ? -1 : 1;
+    const curve = curveDir * length * rng.range(0.28, 0.48);  // strong hook (Nike-swoosh range)
+    const baseWidth = length * PIMENTA_BASE_WIDTH_RATIO;
+
+    swooshes.push({ baseX: px, baseY: py, length, angle, curve, baseWidth });
+    grid[gIdx(px, py)] = { x: px, y: py, r: length };
     return true;
   };
 
   // 2 cluster centers + 70% cluster sampling / 30% free scatter
-  const clusters: { x: number; y: number }[] = [];
+  const clusterCenters: { x: number; y: number }[] = [];
   for (let c = 0; c < 2; c++) {
-    clusters.push({ x: rng.range(0.18, 0.82) * W, y: rng.range(0.18, 0.82) * H });
-    place(clusters[c].x, clusters[c].y);
+    clusterCenters.push({ x: rng.range(0.18, 0.82) * W, y: rng.range(0.18, 0.82) * H });
+    place(clusterCenters[c].x, clusterCenters[c].y);
   }
 
   let attempts = 0;
-  while (glands.length < desiredCount && attempts < desiredCount * 80) {
+  while (swooshes.length < desiredCount && attempts < desiredCount * 80) {
     attempts++;
     if (rng.range(0, 1) < 0.70) {
-      const cc = clusters[Math.floor(rng.range(0, clusters.length))];
+      const cc = clusterCenters[Math.floor(rng.range(0, clusterCenters.length))];
       const spread = Math.min(W, H) * rng.range(0.05, 0.45);
       const a = rng.range(0, Math.PI * 2);
       place(cc.x + Math.cos(a) * spread * rng.range(0, 1), cc.y + Math.sin(a) * spread * rng.range(0, 1));
@@ -727,7 +733,30 @@ function generatePimentaGlands(W: number, H: number, config: PatternConfig): Pim
     }
   }
 
-  return glands;
+  return swooshes;
+}
+
+// Compute the 5 anchor points of a swoosh's outline. Both canvas and SVG
+// consume this to guarantee parity. The shape is built as two quadratic
+// Bezier curves meeting at the tip and joining at the base.
+function swooshGeometry(s: PimentaSwoosh): {
+  baseL: [number, number]; ctrlL: [number, number];
+  tip: [number, number];
+  ctrlR: [number, number]; baseR: [number, number];
+} {
+  const dx = Math.cos(s.angle), dy = Math.sin(s.angle);
+  const px = -dy, py = dx;          // perpendicular to base→tip axis
+  const bw = s.baseWidth * 0.5;
+  // Spine midpoint, offset perpendicular by `curve` — gives the hook bend
+  const midX = s.baseX + dx * s.length * 0.5 + px * s.curve;
+  const midY = s.baseY + dy * s.length * 0.5 + py * s.curve;
+  return {
+    baseL: [s.baseX + px * bw, s.baseY + py * bw],
+    ctrlL: [midX + px * bw, midY + py * bw],
+    tip:   [s.baseX + dx * s.length, s.baseY + dy * s.length],
+    ctrlR: [midX - px * bw, midY - py * bw],
+    baseR: [s.baseX - px * bw, s.baseY - py * bw],
+  };
 }
 
 export function renderPimentaMicroscopeGrid(
@@ -739,31 +768,23 @@ export function renderPimentaMicroscopeGrid(
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['pimenta'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Non-tiling polarity (matches Sal/Manjericão/Orégano):
-  // LIGHT = bright-field (cream bg + colored glands); DARK = dark-field
+  // Non-tiling polarity: LIGHT = cream bg + colored swooshes; DARK = colored bg + cream swooshes
   const bgColor = isDark ? keyColor : CREAM;
   const shapeColor = isDark ? CREAM : keyColor;
 
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, W, H);
 
-  const glands = generatePimentaGlands(W, H, config);
-  const baseStroke = strokeWidth(config.lineWidth || 1.8);
-
-  // Layer 1: Outer ring (stroked)
-  ctx.strokeStyle = shapeColor;
-  ctx.lineWidth = baseStroke * PIMENTA_RING_STROKE_MULT;
-  for (const g of glands) {
-    ctx.beginPath();
-    ctx.arc(g.cx, g.cy, g.r, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-
-  // Layer 2: Inner dot (filled)
+  const swooshes = generatePimentaSwooshes(W, H, config);
   ctx.fillStyle = shapeColor;
-  for (const g of glands) {
+
+  for (const s of swooshes) {
+    const g = swooshGeometry(s);
     ctx.beginPath();
-    ctx.arc(g.cx, g.cy, g.r * PIMENTA_INNER_DOT_RATIO, 0, Math.PI * 2);
+    ctx.moveTo(g.baseL[0], g.baseL[1]);
+    ctx.quadraticCurveTo(g.ctrlL[0], g.ctrlL[1], g.tip[0], g.tip[1]);
+    ctx.quadraticCurveTo(g.ctrlR[0], g.ctrlR[1], g.baseR[0], g.baseR[1]);
+    ctx.closePath();
     ctx.fill();
   }
 }
@@ -1439,20 +1460,14 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
   const bgColor = isDark ? keyColor : CREAM;
   const shapeColor = isDark ? CREAM : keyColor;
-  const baseStroke = strokeWidth(config.lineWidth || 1.8);
-  const ringStrokeW = (baseStroke * PIMENTA_RING_STROKE_MULT).toFixed(2);
 
-  const glands = generatePimentaGlands(width, height, config);
+  const swooshes = generatePimentaSwooshes(width, height, config);
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
-  // Layer 1: Outer rings
-  for (const g of glands) {
-    content += `    <circle cx="${g.cx.toFixed(1)}" cy="${g.cy.toFixed(1)}" r="${g.r.toFixed(1)}" fill="none" stroke="${shapeColor}" stroke-width="${ringStrokeW}" />\n`;
-  }
-
-  // Layer 2: Inner dots
-  for (const g of glands) {
-    content += `    <circle cx="${g.cx.toFixed(1)}" cy="${g.cy.toFixed(1)}" r="${(g.r * PIMENTA_INNER_DOT_RATIO).toFixed(1)}" fill="${shapeColor}" />\n`;
+  for (const s of swooshes) {
+    const g = swooshGeometry(s);
+    const d = `M ${g.baseL[0].toFixed(1)} ${g.baseL[1].toFixed(1)} Q ${g.ctrlL[0].toFixed(1)} ${g.ctrlL[1].toFixed(1)} ${g.tip[0].toFixed(1)} ${g.tip[1].toFixed(1)} Q ${g.ctrlR[0].toFixed(1)} ${g.ctrlR[1].toFixed(1)} ${g.baseR[0].toFixed(1)} ${g.baseR[1].toFixed(1)} Z`;
+    content += `    <path d="${d}" fill="${shapeColor}" />\n`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
