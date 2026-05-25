@@ -55,7 +55,19 @@ export const SEASONINGS_OKLCH: Record<string, OKLCHColor> = {
 };
 
 // Neutral cream pole used in all theme inversions
-const CREAM = 'oklch(96% 0.008 88.75)';
+export const CREAM = 'oklch(96% 0.008 88.75)';
+
+// Public helper: derive (bg, shape) colors for a given spice + theme.
+// Used by the shader pipeline in PatternWorkspace.
+export function deriveSpiceColors(spiceId: string, themeMode: 'light' | 'dark'): { bgColor: string; shapeColor: string } {
+  const ok = SEASONINGS_OKLCH[spiceId] || { l: 0.5, c: 0.1, h: 0 };
+  const keyColor = `oklch(${ok.l * 100}% ${ok.c} ${ok.h})`;
+  const isDark = themeMode === 'dark';
+  return {
+    bgColor: isDark ? keyColor : CREAM,
+    shapeColor: isDark ? CREAM : keyColor,
+  };
+}
 
 // ─── Parameter scaling helpers ──────────────────────────────────────────────
 

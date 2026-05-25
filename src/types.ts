@@ -14,6 +14,17 @@ export interface Seasoning {
   metaphor: string; // Explanation of why the condiment matches the department
 }
 
+export type ShaderId =
+  | 'none'
+  | 'ascii'
+  | 'halftone'
+  | 'crosshatch'
+  | 'stippling'
+  | 'cyanotype'
+  | 'wireframe'
+  | 'risograph'
+  | 'letterpress';
+
 export interface PatternConfig {
   zoom: number;          // 40 to 1200 (x magnification)
   density: number;       // 2 to 40 (structures per viewport)
@@ -22,6 +33,7 @@ export interface PatternConfig {
   themeMode: 'light' | 'dark';
   voronoiRoundedness: number;    // 0 to 100 (% of corner rounding for Voronoi cells, applied via cubic ease-in)
   layoutSeed: number;            // deterministic layout seed
+  shader?: ShaderId;             // post-render visual filter (default 'none')
 }
 
 // NOTE: per-spice parameter presets now live in src/engine/parameters.ts (PARAMETERS registry).

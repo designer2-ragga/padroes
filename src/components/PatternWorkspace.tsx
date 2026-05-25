@@ -4,9 +4,10 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { PatternConfig, Seasoning } from '../types';
-import { renderPatternTile, generateSVGPatternString, getCuratedConfigForSeasoning } from '../utils/patternRenderer';
+import { PatternConfig, Seasoning, ShaderId } from '../types';
+import { renderPatternTile, generateSVGPatternString, getCuratedConfigForSeasoning, deriveSpiceColors } from '../utils/patternRenderer';
 import { PARAMETERS, SpiceId, formatParamValue } from '../engine/parameters';
+import { SHADERS, SHADER_IDS } from '../shaders';
 import { 
   ZoomIn, 
   SlidersHorizontal, 
@@ -60,7 +61,8 @@ export default function PatternWorkspace({
     ? baseCanvasDimension 
     : Math.round(baseCanvasDimension / selectedPreset.ratio);
 
-  // Core canvas render cycle
+  // Core canvas render cycle — renders pattern to an offscreen, then either
+  // blits it directly (no shader) or applies the selected shader pipeline.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -71,11 +73,37 @@ export default function PatternWorkspace({
     const w = canvas.width;
     const h = canvas.height;
 
-    // Clear and reset canvas transparency
+    // Offscreen — original pattern is rendered here at full quality
+    const off = document.createElement('canvas');
+    off.width = w;
+    off.height = h;
+    const offCtx = off.getContext('2d');
+    if (!offCtx) return;
+    renderPatternTile(offCtx, w, h, seasoning, config);
+
+    // Clear visible canvas
     ctx.clearRect(0, 0, w, h);
 
-    // Draw a single high-resolution biological composition perfectly sized to fill the viewport aspect ratio frame
-    renderPatternTile(ctx, w, h, seasoning, config);
+    const shaderId: ShaderId = config.shader ?? 'none';
+    const shader = SHADERS[shaderId];
+
+    if (!shader || !shader.apply) {
+      // No shader — direct blit
+      ctx.drawImage(off, 0, 0);
+      return;
+    }
+
+    // Apply shader post-process
+    const { bgColor, shapeColor } = deriveSpiceColors(seasoning.id, config.themeMode);
+    shader.apply({
+      src: off,
+      dst: ctx,
+      W: w,
+      H: h,
+      config,
+      bgColor,
+      shapeColor,
+    });
   }, [seasoning, config, canvasW, canvasH]);
 
   const updateParam = (key: keyof PatternConfig, value: number | string) => {
@@ -300,6 +328,35 @@ export default function PatternWorkspace({
                 <div className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-white" />
               )}
             </button>
+          </div>
+        </div>
+
+        {/* Shader / post-process filter selector */}
+        <div className="space-y-2">
+          <label className="text-[10px] font-mono font-extrabold tracking-[0.15em] text-neutral-400 uppercase block">
+            Shader
+          </label>
+          <div className="grid grid-cols-3 gap-1.5" id="shader-selector">
+            {SHADER_IDS.map((sid) => {
+              const spec = SHADERS[sid];
+              const isSelected = (config.shader ?? 'none') === sid;
+              return (
+                <button
+                  key={sid}
+                  type="button"
+                  onClick={() => updateParam('shader', sid)}
+                  className={`py-2 px-2 rounded-md border text-[9px] font-mono font-bold tracking-wider uppercase transition-all duration-200 ${
+                    isSelected
+                      ? 'bg-neutral-950 border-neutral-950 text-white'
+                      : 'bg-white border-neutral-200 text-neutral-500 hover:border-neutral-400 hover:text-neutral-950'
+                  }`}
+                  id={`shader-btn-${sid}`}
+                  title={spec.label}
+                >
+                  {spec.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
