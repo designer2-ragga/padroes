@@ -1259,35 +1259,55 @@ interface BasilLayout {
 
 // Rosette density and proportion constants
 const ROSETTE_DENSITY_FACTOR = 0.4;        // → ~6 rosettes at default
-const LEAF_WIDTH_RATIO = 0.22;             // maxWidth / length — basil leaf proportions
+const LEAF_WIDTH_RATIO = 0.26;             // maxWidth / length — basil leaf proportions (~2:1 ovate)
+const LEAF_PETIOLE_OFFSET = 0.08;          // base offset from rosette center / length (implicit petiole gap)
+const LEAF_MIDRIB_THICKNESS_RATIO = 0.012; // midrib stroke width / length
 
-// Leaf geometry — 6 anchor points defining a cubic-Bezier ovate leaf.
-// Cubic with two width control points (closer to base wider, closer to tip
-// narrower) gives the characteristic basil-leaf silhouette: rounded near
-// base, tapered to pointed tip.
+// Botanically-accurate basil leaf geometry. Basil (Ocimum basilicum) has
+// OVATE leaves: ~2:1 length-to-width, widest in the lower-middle, with
+// ACUMINATE apex (gradually tapering to a sharp tip) and ATTENUATE base
+// (gradually tapering to the petiole/stem).
+//
+// Construction: cubic Bezier per side with two width-control points placed
+// to produce the asymmetric ovate profile:
+//   - t1=0.32, w1=1.10×maxWidth → wide bulge in lower-middle (ovate widest)
+//   - t2=0.72, w2=0.45×maxWidth → quick taper to acuminate tip
+// A small petiole offset from the rosette center creates a visible gap
+// between the leaf bases — the implicit petiole/stem attachment point.
 function leafGeometry(l: BasilLeaf): {
   base: [number, number];
   outA: [number, number]; outB: [number, number];
   tip:  [number, number];
   inA:  [number, number]; inB:  [number, number];
+  midribStart: [number, number]; midribEnd: [number, number];
 } {
   const dx = Math.cos(l.angle), dy = Math.sin(l.angle);
   const px = -dy, py = dx;
-  const t1 = 0.30;  // closer to base
-  const t2 = 0.70;  // closer to tip
-  const w1 = l.maxWidth * 1.00;  // wider near base
-  const w2 = l.maxWidth * 0.55;  // narrower near tip
-  const sp1X = l.cx + dx * l.length * t1;
-  const sp1Y = l.cy + dy * l.length * t1;
-  const sp2X = l.cx + dx * l.length * t2;
-  const sp2Y = l.cy + dy * l.length * t2;
+  // Petiole gap — leaf doesn't start at rosette center, but slightly outward
+  const petX = l.cx + dx * l.length * LEAF_PETIOLE_OFFSET;
+  const petY = l.cy + dy * l.length * LEAF_PETIOLE_OFFSET;
+  // Effective blade length (after subtracting petiole offset)
+  const bladeLen = l.length * (1 - LEAF_PETIOLE_OFFSET);
+  const t1 = 0.32;  // lower-middle (widest)
+  const t2 = 0.72;  // upper-third
+  const w1 = l.maxWidth * 1.10;  // ovate bulge — widest below middle
+  const w2 = l.maxWidth * 0.45;  // acuminate taper toward tip
+  const sp1X = petX + dx * bladeLen * t1;
+  const sp1Y = petY + dy * bladeLen * t1;
+  const sp2X = petX + dx * bladeLen * t2;
+  const sp2Y = petY + dy * bladeLen * t2;
+  const tipX = petX + dx * bladeLen;
+  const tipY = petY + dy * bladeLen;
   return {
-    base: [l.cx, l.cy],
+    base: [petX, petY],
     outA: [sp1X + px * w1, sp1Y + py * w1],
     outB: [sp2X + px * w2, sp2Y + py * w2],
-    tip:  [l.cx + dx * l.length, l.cy + dy * l.length],
+    tip:  [tipX, tipY],
     inA:  [sp2X - px * w2, sp2Y - py * w2],
     inB:  [sp1X - px * w1, sp1Y - py * w1],
+    // Midrib (central vein) — base of blade to slightly before tip
+    midribStart: [petX, petY],
+    midribEnd:   [petX + dx * bladeLen * 0.92, petY + dy * bladeLen * 0.92],
   };
 }
 
@@ -1367,6 +1387,7 @@ export function renderManjericaoMicroscopeGrid(
   const layout = generateBasilLayout(W, H, config);
   ctx.fillStyle = shapeColor;
 
+  // Pass 1: filled leaf blades
   for (const leaf of layout.leaves) {
     const g = leafGeometry(leaf);
     ctx.beginPath();
@@ -1375,6 +1396,20 @@ export function renderManjericaoMicroscopeGrid(
     ctx.bezierCurveTo(g.inA[0], g.inA[1], g.inB[0], g.inB[1], g.base[0], g.base[1]);
     ctx.closePath();
     ctx.fill();
+  }
+
+  // Pass 2: midribs (central vein) — drawn in bg color to appear as a
+  // negative line carved out of each leaf. This is the most identifiable
+  // visual feature of basil leaves viewed from above.
+  ctx.strokeStyle = bgColor;
+  ctx.lineCap = 'round';
+  for (const leaf of layout.leaves) {
+    const g = leafGeometry(leaf);
+    ctx.lineWidth = leaf.length * LEAF_MIDRIB_THICKNESS_RATIO;
+    ctx.beginPath();
+    ctx.moveTo(g.midribStart[0], g.midribStart[1]);
+    ctx.lineTo(g.midribEnd[0], g.midribEnd[1]);
+    ctx.stroke();
   }
 }
 
@@ -1389,10 +1424,18 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const layout = generateBasilLayout(width, height, config);
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
+  // Pass 1: filled leaf blades
   for (const leaf of layout.leaves) {
     const g = leafGeometry(leaf);
     const d = `M ${g.base[0].toFixed(1)} ${g.base[1].toFixed(1)} C ${g.outA[0].toFixed(1)} ${g.outA[1].toFixed(1)}, ${g.outB[0].toFixed(1)} ${g.outB[1].toFixed(1)}, ${g.tip[0].toFixed(1)} ${g.tip[1].toFixed(1)} C ${g.inA[0].toFixed(1)} ${g.inA[1].toFixed(1)}, ${g.inB[0].toFixed(1)} ${g.inB[1].toFixed(1)}, ${g.base[0].toFixed(1)} ${g.base[1].toFixed(1)} Z`;
     content += `    <path d="${d}" fill="${shapeColor}" />\n`;
+  }
+
+  // Pass 2: midribs (negative central vein, drawn in bg color)
+  for (const leaf of layout.leaves) {
+    const g = leafGeometry(leaf);
+    const w = (leaf.length * LEAF_MIDRIB_THICKNESS_RATIO).toFixed(2);
+    content += `    <line x1="${g.midribStart[0].toFixed(1)}" y1="${g.midribStart[1].toFixed(1)}" x2="${g.midribEnd[0].toFixed(1)}" y2="${g.midribEnd[1].toFixed(1)}" stroke="${bgColor}" stroke-width="${w}" stroke-linecap="round" />\n`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
