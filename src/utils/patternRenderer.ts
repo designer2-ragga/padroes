@@ -1373,13 +1373,15 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
   }
 
   // ─── Biomass cluster centers — non-uniform feature distribution ─────────────
+  // Tighter cluster radii → all feature layers feel more like a cohesive tissue
+  // field (less feature dispersion into empty regions).
   const nClusters = 4 + Math.floor(rng.range(0, 5));
   const clusters: { cx: number; cy: number; r: number }[] = [];
   for (let i = 0; i < nClusters; i++) {
     clusters.push({
       cx: rng.range(-0.1, 1.1) * W,
       cy: rng.range(-0.1, 1.1) * H,
-      r: rng.range(0.15, 0.42) * minDim,
+      r: rng.range(0.12, 0.36) * minDim,
     });
   }
   const samplePoint = (clusterBias: number): { x: number; y: number } => {
@@ -1414,24 +1416,28 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
     const pos = samplePoint(0.45);
     const r = rng.range(0.035, 0.062) * minDim * peltateSizeScale;
     const segments = 8 + Math.floor(rng.range(0, 5)); // 8-12 umbrella ribs
-    // Pre-compute per-segment radial jitter so canvas + SVG draw identical spokes
+    // Pre-compute per-segment radial jitter so canvas + SVG draw identical spokes.
+    // Wider range (0.85–1.18) breaks any gear/clock-face perception → reads as
+    // organic glandular disc, not mechanical icon.
     const segJitter: number[] = [];
-    for (let s = 0; s < segments; s++) segJitter.push(rng.range(0.92, 1.08));
+    for (let s = 0; s < segments; s++) segJitter.push(rng.range(0.85, 1.18));
     peltateTrichomes.push({ cx: pos.x, cy: pos.y, r, segments, segJitter });
   }
 
   // ─── CHLOROPLAST CLUSTERS — intracellular particulate texture ───────────────
   // Repurposed from former 'grains'. Tightly clustered, dense, subordinate.
-  // factor=55.0, strength=0.3 → dense intracellular feel with mild zoom reduction
+  // Higher cluster bias (0.96) and smaller mean size (1.2–3.6) make the
+  // particulate field read as intracellular granularity, not free-floating
+  // particles in empty space.
   const nChlor = targetCount(density, viewportArea, 55.0, zoom, 0.3);
   const chlorSizeScale = scaleAtZoom(1, zoom, 'sqrt');
   const chloroplastClusters: BasilLayout['chloroplastClusters'] = [];
   for (let i = 0; i < nChlor; i++) {
-    const pos = samplePoint(0.92); // tight clustering = intracellular feel
+    const pos = samplePoint(0.96); // tight clustering = intracellular feel
     chloroplastClusters.push({
       x: pos.x,
       y: pos.y,
-      r: rng.range(1.6, 4.5) * chlorSizeScale,
+      r: rng.range(1.2, 3.6) * chlorSizeScale,
       seed: 'basil_cc_' + i + '_' + seed,
     });
   }
@@ -1485,23 +1491,28 @@ export function renderManjericaoMicroscopeGrid(
     ctx.restore();
   }
 
-  // Layer 3 (dominant): PAVEMENT CELLS — Voronoi epidermal mesh, sinuous walls
+  // Layer 3 (dominant): PAVEMENT CELLS — Voronoi epidermal mesh, sinuous walls.
+  // Per-cell roundedness modulation (deterministic, index-based, no RNG) breaks
+  // the mathematical uniformity of the smoothing → walls feel biologically
+  // tensioned, with subtle variation cell-to-cell as in real epidermis.
   ctx.lineWidth = baseStroke;
-  for (const cell of layout.pavementCells) {
-    drawRoundedPolygon(ctx, cell.poly, PAVEMENT_ROUNDEDNESS);
+  for (let i = 0; i < layout.pavementCells.length; i++) {
+    const localRound = PAVEMENT_ROUNDEDNESS + Math.sin(i * 1.31) * 7;
+    drawRoundedPolygon(ctx, layout.pavementCells[i].poly, localRound);
     ctx.stroke();
   }
 
-  // Layer 4: STOMATA — sparse elliptical "eye" structures
-  ctx.lineWidth = baseStroke * 1.6; // slightly thicker than membrane walls
+  // Layer 4: STOMATA — sparse elliptical "eye" structures with emphasized
+  // guard-cell silhouette (thicker outer rim) and tighter aperture slit.
+  ctx.lineWidth = baseStroke * 1.8;
   for (const s of layout.stomata) {
-    // Outer outline
+    // Outer outline (guard-cell ring)
     ctx.beginPath();
     ctx.ellipse(s.cx, s.cy, s.rx, s.ry, s.rotation, 0, Math.PI * 2);
     ctx.stroke();
-    // Inner slit (filled)
+    // Inner aperture slit (filled, narrower + longer)
     ctx.beginPath();
-    ctx.ellipse(s.cx, s.cy, s.rx * 0.55, s.ry * 0.18, s.rotation, 0, Math.PI * 2);
+    ctx.ellipse(s.cx, s.cy, s.rx * 0.65, s.ry * 0.12, s.rotation, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -1540,7 +1551,7 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const shapeColor = isDark ? CREAM : keyColor;
   const baseStroke = strokeWidth(config.lineWidth || 1.5);
   const pavStrokeW = baseStroke.toFixed(2);
-  const stomaStrokeW = (baseStroke * 1.6).toFixed(2);
+  const stomaStrokeW = (baseStroke * 1.8).toFixed(2);
   const discStrokeW = (baseStroke * 1.3).toFixed(2);
   const ribStrokeW = (baseStroke * 0.7).toFixed(2);
 
@@ -1559,18 +1570,20 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
     content += `    <path d="${d}" fill="${shapeColor}" />\n`;
   }
 
-  // Layer 3: PAVEMENT CELLS — Voronoi epidermal mesh
-  for (const cell of layout.pavementCells) {
-    const d = getRoundedPolygonSvgPath(cell.poly, PAVEMENT_ROUNDEDNESS);
+  // Layer 3: PAVEMENT CELLS — Voronoi epidermal mesh with per-cell roundedness
+  // modulation (matches canvas: index-based, deterministic, no RNG).
+  for (let i = 0; i < layout.pavementCells.length; i++) {
+    const localRound = PAVEMENT_ROUNDEDNESS + Math.sin(i * 1.31) * 7;
+    const d = getRoundedPolygonSvgPath(layout.pavementCells[i].poly, localRound);
     content += `    <path d="${d}" fill="none" stroke="${shapeColor}" stroke-width="${pavStrokeW}" stroke-linejoin="round" />\n`;
   }
 
-  // Layer 4: STOMATA
+  // Layer 4: STOMATA (narrower + longer aperture slit)
   for (const s of layout.stomata) {
     const rotDeg = (s.rotation * 180 / Math.PI).toFixed(1);
     const cxStr = s.cx.toFixed(1), cyStr = s.cy.toFixed(1);
     content += `    <ellipse cx="${cxStr}" cy="${cyStr}" rx="${s.rx.toFixed(1)}" ry="${s.ry.toFixed(1)}" transform="rotate(${rotDeg} ${cxStr} ${cyStr})" fill="none" stroke="${shapeColor}" stroke-width="${stomaStrokeW}" />\n`;
-    content += `    <ellipse cx="${cxStr}" cy="${cyStr}" rx="${(s.rx * 0.55).toFixed(1)}" ry="${(s.ry * 0.18).toFixed(1)}" transform="rotate(${rotDeg} ${cxStr} ${cyStr})" fill="${shapeColor}" />\n`;
+    content += `    <ellipse cx="${cxStr}" cy="${cyStr}" rx="${(s.rx * 0.65).toFixed(1)}" ry="${(s.ry * 0.12).toFixed(1)}" transform="rotate(${rotDeg} ${cxStr} ${cyStr})" fill="${shapeColor}" />\n`;
   }
 
   // Layer 5: PELTATE TRICHOMES
