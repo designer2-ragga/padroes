@@ -652,7 +652,8 @@ interface PimentaSwoosh {
 }
 
 const PIMENTA_DENSITY_FACTOR = 2.2;        // → ~25 swooshes at curated default — enough to read the flow
-const PIMENTA_BASE_WIDTH_RATIO = 0.30;     // base width / length — slender chili silhouette
+const PIMENTA_BASE_WIDTH_RATIO = 0.42;     // base width / length — chunky base
+const PIMENTA_BASE_CAP_DEPTH = 1.20;       // back-cap depth multiplier — large, visible rounded stem end
 const PIMENTA_FLOW_SCALE_RATIO = 0.45;     // flow-field scale / minDim — controls how smoothly the wind varies
 
 // Deterministic 2D flow field — smooth angular variation across the canvas.
@@ -724,7 +725,9 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
     // Curve direction also tied to flow (vorticity-like) — pimentas in the same
     // flow region hook the same way, creating coherent local rhythm
     const curveDir = Math.sin(pimentaFlowAngle(px + flowScale, py, flowScale, seed) - angle) < 0 ? -1 : 1;
-    const curve = curveDir * length * rng.range(0.30, 0.50);
+    // Gentle curve — strong enough to read as chili bend, weak enough to NOT look
+    // like a banana/crescent/eyebrow (which would emerge with strong curve + symmetric ends)
+    const curve = curveDir * length * rng.range(0.12, 0.22);
     const baseWidth = length * PIMENTA_BASE_WIDTH_RATIO;
 
     swooshes.push({ baseX: px, baseY: py, length, angle, curve, baseWidth });
@@ -742,13 +745,15 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
   return swooshes;
 }
 
-// Compute the 5 anchor points of a swoosh's outline. Both canvas and SVG
-// consume this to guarantee parity. The shape is built as two quadratic
-// Bezier curves meeting at the tip and joining at the base.
+// Compute the 6 anchor points of a swoosh's outline. Both canvas and SVG
+// consume this to guarantee parity. Shape: rounded base cap (stem end) on
+// one side, tapered pointed tip on the other, with curved hook spine — the
+// asymmetric ends are what separate this from a symmetric eyebrow/crescent.
 function swooshGeometry(s: PimentaSwoosh): {
   baseL: [number, number]; ctrlL: [number, number];
   tip: [number, number];
   ctrlR: [number, number]; baseR: [number, number];
+  backCtrl: [number, number];
 } {
   const dx = Math.cos(s.angle), dy = Math.sin(s.angle);
   const px = -dy, py = dx;          // perpendicular to base→tip axis
@@ -756,12 +761,16 @@ function swooshGeometry(s: PimentaSwoosh): {
   // Spine midpoint, offset perpendicular by `curve` — gives the hook bend
   const midX = s.baseX + dx * s.length * 0.5 + px * s.curve;
   const midY = s.baseY + dy * s.length * 0.5 + py * s.curve;
+  // Back-cap control: pushes the closing curve BEHIND the base center, giving
+  // the chili its rounded "stem end" silhouette (the key fix vs eyebrow look).
+  const capDepth = bw * PIMENTA_BASE_CAP_DEPTH * 2;
   return {
     baseL: [s.baseX + px * bw, s.baseY + py * bw],
     ctrlL: [midX + px * bw, midY + py * bw],
     tip:   [s.baseX + dx * s.length, s.baseY + dy * s.length],
     ctrlR: [midX - px * bw, midY - py * bw],
     baseR: [s.baseX - px * bw, s.baseY - py * bw],
+    backCtrl: [s.baseX - dx * capDepth, s.baseY - dy * capDepth],
   };
 }
 
@@ -790,6 +799,7 @@ export function renderPimentaMicroscopeGrid(
     ctx.moveTo(g.baseL[0], g.baseL[1]);
     ctx.quadraticCurveTo(g.ctrlL[0], g.ctrlL[1], g.tip[0], g.tip[1]);
     ctx.quadraticCurveTo(g.ctrlR[0], g.ctrlR[1], g.baseR[0], g.baseR[1]);
+    ctx.quadraticCurveTo(g.backCtrl[0], g.backCtrl[1], g.baseL[0], g.baseL[1]);
     ctx.closePath();
     ctx.fill();
   }
@@ -1472,7 +1482,7 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
 
   for (const s of swooshes) {
     const g = swooshGeometry(s);
-    const d = `M ${g.baseL[0].toFixed(1)} ${g.baseL[1].toFixed(1)} Q ${g.ctrlL[0].toFixed(1)} ${g.ctrlL[1].toFixed(1)} ${g.tip[0].toFixed(1)} ${g.tip[1].toFixed(1)} Q ${g.ctrlR[0].toFixed(1)} ${g.ctrlR[1].toFixed(1)} ${g.baseR[0].toFixed(1)} ${g.baseR[1].toFixed(1)} Z`;
+    const d = `M ${g.baseL[0].toFixed(1)} ${g.baseL[1].toFixed(1)} Q ${g.ctrlL[0].toFixed(1)} ${g.ctrlL[1].toFixed(1)} ${g.tip[0].toFixed(1)} ${g.tip[1].toFixed(1)} Q ${g.ctrlR[0].toFixed(1)} ${g.ctrlR[1].toFixed(1)} ${g.baseR[0].toFixed(1)} ${g.baseR[1].toFixed(1)} Q ${g.backCtrl[0].toFixed(1)} ${g.backCtrl[1].toFixed(1)} ${g.baseL[0].toFixed(1)} ${g.baseL[1].toFixed(1)} Z`;
     content += `    <path d="${d}" fill="${shapeColor}" />\n`;
   }
 
