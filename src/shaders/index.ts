@@ -19,12 +19,6 @@
 import { ShaderId, PatternConfig } from '../types';
 import { applyAscii } from './ascii';
 import { applyHalftone } from './halftone';
-import { applyCrosshatch } from './crosshatch';
-import { applyStippling } from './stippling';
-import { applyCyanotype } from './cyanotype';
-import { applyWireframe } from './wireframe';
-import { applyRisograph } from './risograph';
-import { applyLetterpress } from './letterpress';
 
 export interface ShaderContext {
   src: HTMLCanvasElement;          // offscreen canvas with original pattern
@@ -45,40 +39,24 @@ export interface ShaderSpec {
 }
 
 export const SHADERS: Record<ShaderId, ShaderSpec> = {
-  none:        { id: 'none',        label: 'Nenhum',       apply: null },
-  ascii:       { id: 'ascii',       label: 'ASCII',        apply: applyAscii },
-  halftone:    { id: 'halftone',    label: 'Halftone',     apply: applyHalftone },
-  crosshatch:  { id: 'crosshatch',  label: 'Crosshatch',   apply: applyCrosshatch },
-  stippling:   { id: 'stippling',   label: 'Stippling',    apply: applyStippling },
-  cyanotype:   { id: 'cyanotype',   label: 'Cianotipia',   apply: applyCyanotype },
-  wireframe:   { id: 'wireframe',   label: 'Wireframe',    apply: applyWireframe },
-  risograph:   { id: 'risograph',   label: 'Risograph',    apply: applyRisograph },
-  letterpress: { id: 'letterpress', label: 'Letterpress',  apply: applyLetterpress },
+  none:     { id: 'none',     label: 'Nenhum',   apply: null },
+  ascii:    { id: 'ascii',    label: 'ASCII',    apply: applyAscii },
+  halftone: { id: 'halftone', label: 'Halftone', apply: applyHalftone },
 };
 
-export const SHADER_IDS: ShaderId[] = [
-  'none', 'ascii', 'halftone', 'crosshatch', 'stippling',
-  'cyanotype', 'wireframe', 'risograph', 'letterpress',
-];
+export const SHADER_IDS: ShaderId[] = ['none', 'ascii', 'halftone'];
 
 /**
  * Read the bg color from the rendered offscreen by sampling pixel (0, 0).
  * Returns a coverage map (1 = shape, 0 = bg) for the whole image.
- *
- * Used by shape-based shaders (ASCII, halftone, crosshatch, stippling,
- * wireframe) that need to know which pixels are "shape" vs "bg".
  */
 export function buildCoverageMap(src: HTMLCanvasElement, W: number, H: number): Uint8Array {
   const srcCtx = src.getContext('2d');
   if (!srcCtx) return new Uint8Array(W * H);
   const imageData = srcCtx.getImageData(0, 0, W, H);
   const data = imageData.data;
-  // Sample bg from top-left corner pixel
   const bgR = data[0], bgG = data[1], bgB = data[2];
   const coverage = new Uint8Array(W * H);
-  // A pixel is "shape" if it differs sufficiently from bg.
-  // Threshold 20 (sum of channel diffs) is permissive enough for OKLCH
-  // anti-aliasing edges to still register as shape.
   for (let i = 0, p = 0; i < data.length; i += 4, p++) {
     const dr = data[i] - bgR;
     const dg = data[i + 1] - bgG;

@@ -17,13 +17,7 @@ export interface Seasoning {
 export type ShaderId =
   | 'none'
   | 'ascii'
-  | 'halftone'
-  | 'crosshatch'
-  | 'stippling'
-  | 'cyanotype'
-  | 'wireframe'
-  | 'risograph'
-  | 'letterpress';
+  | 'halftone';
 
 export interface PatternConfig {
   zoom: number;          // 40 to 1200 (x magnification)

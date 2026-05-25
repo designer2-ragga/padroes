@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Halftone shader — newspaper/print dot grid with sub-pixel jitter,
- * radius variation, and paper grain to simulate real offset printing.
+ * radius variation, and ink-density opacity variance. No paper grain
+ * (kept clean for sharper print feel).
  */
 
 import { ShaderContext, buildCoverageMap, sampleCoverage } from './index';
-import { makeRng, addPaperGrain } from './_texture';
+import { makeRng } from './_texture';
 
 export function applyHalftone(c: ShaderContext): void {
   const { dst, src, W, H, bgColor, shapeColor, config } = c;
@@ -34,16 +35,14 @@ export function applyHalftone(c: ShaderContext): void {
       const cov = sampleCoverage(coverage, W, x0, y0, cellSize, cellSize);
       if (cov < 0.02) continue;
       const baseR = maxR * Math.sqrt(cov);
-      const dotR = baseR * (0.82 + rng() * 0.36); // ±18% size variation
+      const dotR = baseR * (0.82 + rng() * 0.36);
       const jx = (rng() - 0.5) * jitter;
       const jy = (rng() - 0.5) * jitter;
-      dst.globalAlpha = 0.85 + rng() * 0.15; // ink density variance
+      dst.globalAlpha = 0.85 + rng() * 0.15;
       dst.beginPath();
       dst.arc(x0 + cellSize / 2 + jx, y0 + cellSize / 2 + jy, dotR, 0, Math.PI * 2);
       dst.fill();
     }
   }
   dst.globalAlpha = 1;
-
-  addPaperGrain(dst, W, H, seed, 14);
 }
