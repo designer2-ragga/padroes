@@ -1300,76 +1300,79 @@ function svgFromBlobPoints(pts: { x: number; y: number }[]): string {
 }
 
 // Build sampled circle "beads" along a curved trichome filament path
-function buildTrichomeSamples(
-  startX: number, startY: number,
-  endX: number, endY: number,
-  bendAmount: number,
-  rng: SeededRandom,
-  thickness: number
-): { x: number; y: number; r: number }[] {
-  const dx = endX - startX;
-  const dy = endY - startY;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 1) return [];
-  // Perpendicular direction for bend offset
-  const perpX = -dy / len;
-  const perpY = dx / len;
-  // Two cubic Bezier control points with slight twist
-  const c1x = startX + dx * 0.33 + perpX * bendAmount;
-  const c1y = startY + dy * 0.33 + perpY * bendAmount;
-  const c2x = startX + dx * 0.66 + perpX * bendAmount * 0.6;
-  const c2y = startY + dy * 0.66 + perpY * bendAmount * 0.6;
-
-  const samples = Math.max(8, Math.round(len / 10));
-  const out: { x: number; y: number; r: number }[] = [];
-  for (let i = 0; i < samples; i++) {
-    const t = i / (samples - 1);
-    const mt = 1 - t;
-    const bx = mt * mt * mt * startX + 3 * mt * mt * t * c1x + 3 * mt * t * t * c2x + t * t * t * endX;
-    const by = mt * mt * mt * startY + 3 * mt * mt * t * c1y + 3 * mt * t * t * c2y + t * t * t * endY;
-    // Tapered thickness: thicker in middle, slimmer at tips (sin envelope)
-    const env = Math.sin(t * Math.PI);
-    const r = (thickness * 0.35 + env * thickness * 0.65) * rng.range(0.82, 1.18);
-    out.push({ x: bx, y: by, r });
-  }
-  return out;
-}
-
 // Layout primitives (shared canvas + SVG geometry)
 interface BasilLayout {
-  membranes: { cx: number; cy: number; rx: number; ry: number; seed: string; points: number }[];
-  chloroplasts: { x: number; y: number; rx: number; ry: number; seed: string; points: number }[];
-  grains: { x: number; y: number; r: number; seed: string }[];
-  trichomes: { startX: number; startY: number; endX: number; endY: number; bendAmount: number; thickness: number; seed: string }[];
+  pavementCells: { poly: [number, number][] }[];
+  stomata: { cx: number; cy: number; rx: number; ry: number; rotation: number }[];
+  peltateTrichomes: { cx: number; cy: number; r: number; segments: number; segJitter: number[] }[];
+  chloroplastClusters: { x: number; y: number; r: number; seed: string }[];
   microParticles: { x: number; y: number; r: number }[];
 }
 
+// Basil epidermal pavement-cell mesh constants (local to Manjericão)
+const PAVEMENT_DENSITY_FACTOR = 5.5; // → ~5-6 cells across at default (zoom=260, density=16)
+const PAVEMENT_ROUNDEDNESS = 65;     // sinuous puzzle-piece walls
+const PAVEMENT_STRETCH = 1.25;       // mild anisotropy along rotation axis
+
 function generateBasilLayout(W: number, H: number, config: PatternConfig): BasilLayout {
   const seed = Math.round(config.layoutSeed ?? 1);
-  const rng = new SeededRandom('basil_layout_v3_' + seed);
+  const rng = new SeededRandom('basil_layout_v4_' + seed);
   const density = config.density ?? 16;
   const zoom = config.zoom ?? 100;
   const minDim = Math.min(W, H);
   const viewportArea = W * H;
+  const rotationDeg = config.rotation ?? 0;
 
-  // ─── Per-layer optical scaling ─────────────────────────────────────────────
-  //
-  // Real microscopy doesn't scale all features equally as you change objective:
-  //   - Macro features (whole cell walls, trichome hairs) → fewer, larger
-  //   - Mid features (chloroplast clusters)              → fewer, larger
-  //   - Substrate features (grains, suspended particles) → density stays high
-  //                                                        size grows mildly
-  //   - Filament thickness                               → nearly constant
-  //
-  // Each layer gets its own (countFactor, countZoomReduceStrength, sizeMode).
-  // Factors calibrated so total counts at the curated default (zoom=260,
-  // density=16) approximately match the prior implementation, preserving
-  // perceptual identity at the default config. Below 260x more structures
-  // appear; above 260x macro structures fade while substrate stays.
+  // ─── PAVEMENT CELLS — Voronoi mesh (PRIMARY layer) ──────────────────────────
+  // Fewer, larger cells than Louro — reads as basil epidermal pavement tissue,
+  // not a packed Voronoi mosaic. Anisotropy + high roundedness produce the
+  // characteristic puzzle-piece sinuosity of dicot leaf epidermis.
+  const pavementCount = targetCount(density, viewportArea, PAVEMENT_DENSITY_FACTOR, zoom, true);
+  const M = Math.max(3, Math.min(10, Math.round(Math.sqrt(pavementCount))));
 
-  // Step 1: biomass density centers — unchanged (procedural detail, not a
-  // perceptual layer; their count drives WHERE structures land, not what
-  // the viewer counts).
+  const jittersX: number[] = [];
+  const jittersY: number[] = [];
+  for (let d = 0; d < M * M; d++) {
+    jittersX.push(rng.range(-0.35, 0.35));
+    jittersY.push(rng.range(-0.35, 0.35));
+  }
+  const getSeed = (gi: number, gj: number) => {
+    const iWrap = (gi % M + M) % M;
+    const jWrap = (gj % M + M) % M;
+    const idx = jWrap * M + iWrap;
+    const cellW = W / M, cellH = H / M;
+    const jx = jittersX[idx] * cellW;
+    const jy = jittersY[idx] * cellH;
+    return { x: gi * cellW + cellW / 2 + jx, y: gj * cellH + cellH / 2 + jy };
+  };
+
+  const { toT, fromT } = createAnisotropicTransform(PAVEMENT_STRETCH, rotationDeg);
+  const pavementCells: BasilLayout['pavementCells'] = [];
+  for (let gi = -3; gi <= M + 2; gi++) {
+    for (let gj = -3; gj <= M + 2; gj++) {
+      const s0_orig = getSeed(gi, gj);
+      const s0_t = toT(s0_orig.x, s0_orig.y);
+      let poly: [number, number][] = [
+        [s0_t.x - W * 3.0, s0_t.y - H * 3.0],
+        [s0_t.x + W * 3.0, s0_t.y - H * 3.0],
+        [s0_t.x + W * 3.0, s0_t.y + H * 3.0],
+        [s0_t.x - W * 3.0, s0_t.y + H * 3.0],
+      ];
+      for (let u = gi - 2; u <= gi + 2; u++) {
+        for (let v = gj - 2; v <= gj + 2; v++) {
+          if (u === gi && v === gj) continue;
+          const sj_orig = getSeed(u, v);
+          const sj_t = toT(sj_orig.x, sj_orig.y);
+          poly = clipPolygon(poly, s0_t, sj_t);
+        }
+      }
+      if (poly.length < 3) continue;
+      const finalPoly = poly.map(([px, py]) => fromT(px, py));
+      pavementCells.push({ poly: finalPoly });
+    }
+  }
+
+  // ─── Biomass cluster centers — non-uniform feature distribution ─────────────
   const nClusters = 4 + Math.floor(rng.range(0, 5));
   const clusters: { cx: number; cy: number; r: number }[] = [];
   for (let i = 0; i < nClusters; i++) {
@@ -1379,7 +1382,6 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
       r: rng.range(0.15, 0.42) * minDim,
     });
   }
-
   const samplePoint = (clusterBias: number): { x: number; y: number } => {
     if (rng.range(0, 1) < clusterBias) {
       const c = clusters[Math.floor(rng.range(0, clusters.length))];
@@ -1390,112 +1392,60 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
     return { x: rng.range(0, W), y: rng.range(0, H) };
   };
 
-  // Layer 2: MEMBRANES — macro feature, linear count reduction, sqrt size growth
-  // factor=2.11, strength=1.0 → ~13 at curated default; 34 at 100x; 3 at 1200x
-  const nMembranes = targetCount(density, viewportArea, 2.11, zoom, 1.0);
-  const memSizeScale = scaleAtZoom(1, zoom, 'sqrt');
-  const membranes: BasilLayout['membranes'] = [];
-  for (let i = 0; i < nMembranes; i++) {
+  // ─── STOMATA — sparse elliptical "eye" structures (botanical anchors) ───────
+  // factor=1.5, strength=0.5 → ~6 at default; ~3 at 1200x; ~12 at 100x
+  const nStomata = Math.max(3, targetCount(density, viewportArea, 1.5, zoom, 0.5));
+  const stomaSizeScale = scaleAtZoom(1, zoom, 'sqrt');
+  const stomata: BasilLayout['stomata'] = [];
+  for (let i = 0; i < nStomata; i++) {
     const pos = samplePoint(0.55);
-    // Multi-scale: 30% tiny, 50% medium, 20% large
-    const sizeRoll = rng.range(0, 1);
-    let sizeBase: number;
-    if (sizeRoll < 0.30) sizeBase = rng.range(0.035, 0.060);
-    else if (sizeRoll < 0.80) sizeBase = rng.range(0.060, 0.110);
-    else sizeBase = rng.range(0.110, 0.180);
-    const baseR = sizeBase * minDim * memSizeScale;
-    membranes.push({
-      cx: pos.x,
-      cy: pos.y,
-      rx: baseR * rng.range(0.75, 1.30),
-      ry: baseR * rng.range(0.75, 1.30),
-      seed: 'basil_mem_' + i + '_' + seed,
-      points: 14 + Math.floor(rng.range(0, 9)),
-    });
+    const rx = rng.range(0.022, 0.038) * minDim * stomaSizeScale;
+    const aspect = rng.range(0.36, 0.50); // characteristically elongated
+    const rotation = rng.range(0, Math.PI);
+    stomata.push({ cx: pos.x, cy: pos.y, rx, ry: rx * aspect, rotation });
   }
 
-  // Layer 3: CHLOROPLAST CLUSTERS — mid feature, gentle count reduction (strength 0.7),
-  //                                 sqrt size growth
-  // factor=5.13, strength=0.7 → ~40 at curated default; 82 at 100x; 13 at 1200x
-  const nChloroplasts = targetCount(density, viewportArea, 5.13, zoom, 0.7);
-  const chSizeScale = scaleAtZoom(1, zoom, 'sqrt');
-  const chloroplasts: BasilLayout['chloroplasts'] = [];
-  for (let i = 0; i < nChloroplasts; i++) {
-    const pos = samplePoint(0.82);
-    const sizeRoll = rng.range(0, 1);
-    let baseR: number;
-    if (sizeRoll < 0.60) baseR = rng.range(0.012, 0.025) * minDim * chSizeScale;
-    else if (sizeRoll < 0.92) baseR = rng.range(0.025, 0.045) * minDim * chSizeScale;
-    else baseR = rng.range(0.045, 0.075) * minDim * chSizeScale;
-    chloroplasts.push({
+  // ─── PELTATE TRICHOMES — radial glandular discs (signature motif) ───────────
+  // factor=0.8, strength=0.5 → ~3 at default; ~2 at 1200x; ~6 at 100x
+  const nPeltate = Math.max(2, targetCount(density, viewportArea, 0.8, zoom, 0.5));
+  const peltateSizeScale = scaleAtZoom(1, zoom, 'sqrt');
+  const peltateTrichomes: BasilLayout['peltateTrichomes'] = [];
+  for (let i = 0; i < nPeltate; i++) {
+    const pos = samplePoint(0.45);
+    const r = rng.range(0.035, 0.062) * minDim * peltateSizeScale;
+    const segments = 8 + Math.floor(rng.range(0, 5)); // 8-12 umbrella ribs
+    // Pre-compute per-segment radial jitter so canvas + SVG draw identical spokes
+    const segJitter: number[] = [];
+    for (let s = 0; s < segments; s++) segJitter.push(rng.range(0.92, 1.08));
+    peltateTrichomes.push({ cx: pos.x, cy: pos.y, r, segments, segJitter });
+  }
+
+  // ─── CHLOROPLAST CLUSTERS — intracellular particulate texture ───────────────
+  // Repurposed from former 'grains'. Tightly clustered, dense, subordinate.
+  // factor=55.0, strength=0.3 → dense intracellular feel with mild zoom reduction
+  const nChlor = targetCount(density, viewportArea, 55.0, zoom, 0.3);
+  const chlorSizeScale = scaleAtZoom(1, zoom, 'sqrt');
+  const chloroplastClusters: BasilLayout['chloroplastClusters'] = [];
+  for (let i = 0; i < nChlor; i++) {
+    const pos = samplePoint(0.92); // tight clustering = intracellular feel
+    chloroplastClusters.push({
       x: pos.x,
       y: pos.y,
-      rx: baseR * rng.range(0.85, 1.20),
-      ry: baseR * rng.range(0.85, 1.20),
-      seed: 'basil_cl_' + i + '_' + seed,
-      points: 8 + Math.floor(rng.range(0, 5)),
+      r: rng.range(1.6, 4.5) * chlorSizeScale,
+      seed: 'basil_cc_' + i + '_' + seed,
     });
   }
 
-  // Layer 4: GRAINS — substrate, no count reduction (always plentiful), sqrt size growth
-  // factor=45.0, strength=0 → 720 at any zoom (density=16)
-  const nGrains = targetCount(density, viewportArea, 45.0, zoom, 0);
-  const grainSizeScale = scaleAtZoom(1, zoom, 'sqrt');
-  const grains: BasilLayout['grains'] = [];
-  for (let i = 0; i < nGrains; i++) {
-    const pos = samplePoint(0.90);
-    grains.push({
-      x: pos.x,
-      y: pos.y,
-      r: rng.range(1.2, 4.0) * grainSizeScale,
-      seed: 'basil_g_' + i + '_' + seed,
-    });
-  }
-
-  // Layer 5: TRICHOMES — strong count reduction (strength 1.2, faster than linear),
-  //                      length grows with sqrt, thickness nearly absolute
-  // factor=1.96, strength=1.2 → ~10 at curated default; 31 at 100x; 2 at 1200x
-  const nTrichomes = targetCount(density, viewportArea, 1.96, zoom, 1.2);
-  const triLengthScale = scaleAtZoom(1, zoom, 'sqrt');
-  // Thickness: "almost absolute" — start with sqrt, attenuate to ~0.3 of its growth
-  //   At 100x: 1.0×;  at 260x: ~1.18× ; at 1200x: ~1.74×  (much less than full sqrt's 3.46×)
-  const triThickScale = 1 + (scaleAtZoom(1, zoom, 'sqrt') - 1) * 0.3;
-  const trichomes: BasilLayout['trichomes'] = [];
-  const rotBase = ((config.rotation ?? 0) * Math.PI) / 180;
-  for (let i = 0; i < nTrichomes; i++) {
-    const start = samplePoint(0.55);
-    const len = rng.range(0.06, 0.22) * minDim * triLengthScale;
-    const flip = rng.range(0, 1) < 0.5 ? 0 : Math.PI;
-    const angle = rotBase + flip + rng.range(-0.7, 0.7);
-    const endX = start.x + Math.cos(angle) * len;
-    const endY = start.y + Math.sin(angle) * len;
-    const bendAmount = rng.range(-0.35, 0.35) * len;
-    trichomes.push({
-      startX: start.x,
-      startY: start.y,
-      endX, endY,
-      bendAmount,
-      thickness: rng.range(1.8, 4.5) * triThickScale,
-      seed: 'basil_t_' + i + '_' + seed,
-    });
-  }
-
-  // Layer 6: MICRO-PARTICLES — background noise, no count reduction, absolute size
-  // factor=55, strength=0 → 880 at any zoom (density=16)
-  // Size stays absolute: tiny dots are pixel-resolution markers; growing them
-  // would turn the background into noise dots rather than the intended "grain"
+  // ─── MICRO PARTICLES — cytoplasmic substrate noise ──────────────────────────
+  // factor=55, strength=0 → ambient field, always present, absolute pixel size
   const nMicro = targetCount(density, viewportArea, 55.0, zoom, 0);
   const microParticles: BasilLayout['microParticles'] = [];
   for (let i = 0; i < nMicro; i++) {
     const pos = samplePoint(0.4);
-    microParticles.push({
-      x: pos.x,
-      y: pos.y,
-      r: rng.range(0.30, 1.0), // absolute pixel size
-    });
+    microParticles.push({ x: pos.x, y: pos.y, r: rng.range(0.30, 1.0) });
   }
 
-  return { membranes, chloroplasts, grains, trichomes, microParticles };
+  return { pavementCells, stomata, peltateTrichomes, chloroplastClusters, microParticles };
 }
 
 export function renderManjericaoMicroscopeGrid(
@@ -1504,7 +1454,7 @@ export function renderManjericaoMicroscopeGrid(
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['manjericao'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Theme: LIGHT = bright-field (cream bg + colored structures); DARK = dark-field (colored bg + cream structures)
+  // Theme: LIGHT = bright-field (cream bg + colored structures); DARK = dark-field
   const bgColor = isDark ? keyColor : CREAM;
   const shapeColor = isDark ? CREAM : keyColor;
 
@@ -1513,55 +1463,72 @@ export function renderManjericaoMicroscopeGrid(
   ctx.fillRect(0, 0, W, H);
 
   const layout = generateBasilLayout(W, H, config);
-  const seed = Math.round(config.layoutSeed ?? 1);
-
-  // Layer 1: Amorphous membrane outlines (thin stroke only — translucent ghost membranes)
-  ctx.strokeStyle = shapeColor;
-  ctx.lineWidth = strokeWidth(config.lineWidth || 1.5); // absolute pixels, consistent across all spices
-  ctx.lineJoin = 'round';
-  for (const m of layout.membranes) {
-    const pts = organicShape(m.cx, m.cy, m.rx, m.ry, m.points, m.seed, 0.28);
-    pathFromBlobPoints(ctx, pts);
-    ctx.stroke();
-  }
-
-  // Layer 2: Medium chloroplast clusters (filled organic blobs)
+  const baseStroke = strokeWidth(config.lineWidth || 1.5);
   ctx.fillStyle = shapeColor;
-  for (const c of layout.chloroplasts) {
-    const pts = organicShape(c.x, c.y, c.rx, c.ry, c.points, c.seed, 0.22);
-    pathFromBlobPoints(ctx, pts);
-    ctx.fill();
-  }
+  ctx.strokeStyle = shapeColor;
+  ctx.lineJoin = 'round';
 
-  // Layer 3: Trichome filaments (curved organic hairs as bead sequence)
-  for (const t of layout.trichomes) {
-    const triRng = new SeededRandom(t.seed);
-    const samples = buildTrichomeSamples(t.startX, t.startY, t.endX, t.endY, t.bendAmount, triRng, t.thickness);
-    for (const s of samples) {
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Layer 4: Small chloroplast grains (filled organic vacuoles)
-  for (const g of layout.grains) {
-    const grainRng = new SeededRandom(g.seed);
-    ctx.save();
-    ctx.translate(g.x, g.y);
-    pathFromBlobPoints(ctx, organicShape(0, 0, g.r, g.r, 6, grainRng, 0.18));
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // Layer 5: Suspended micro-particles (tiny dots — biological noise)
+  // Layer 1 (back): MICRO PARTICLES — cytoplasmic substrate noise
   for (const p of layout.microParticles) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  void seed; // (silence: seed reserved for future deterministic per-layer noise)
+  // Layer 2: CHLOROPLAST CLUSTERS — intracellular particulate texture
+  for (const c of layout.chloroplastClusters) {
+    const ccRng = new SeededRandom(c.seed);
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    pathFromBlobPoints(ctx, organicShape(0, 0, c.r, c.r, 6, ccRng, 0.18));
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Layer 3 (dominant): PAVEMENT CELLS — Voronoi epidermal mesh, sinuous walls
+  ctx.lineWidth = baseStroke;
+  for (const cell of layout.pavementCells) {
+    drawRoundedPolygon(ctx, cell.poly, PAVEMENT_ROUNDEDNESS);
+    ctx.stroke();
+  }
+
+  // Layer 4: STOMATA — sparse elliptical "eye" structures
+  ctx.lineWidth = baseStroke * 1.6; // slightly thicker than membrane walls
+  for (const s of layout.stomata) {
+    // Outer outline
+    ctx.beginPath();
+    ctx.ellipse(s.cx, s.cy, s.rx, s.ry, s.rotation, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inner slit (filled)
+    ctx.beginPath();
+    ctx.ellipse(s.cx, s.cy, s.rx * 0.55, s.ry * 0.18, s.rotation, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Layer 5 (front): PELTATE TRICHOMES — glandular discs with umbrella ribs
+  for (const t of layout.peltateTrichomes) {
+    // Outer disc outline
+    ctx.lineWidth = baseStroke * 1.3;
+    ctx.beginPath();
+    ctx.arc(t.cx, t.cy, t.r, 0, Math.PI * 2);
+    ctx.stroke();
+    // Radial segments (umbrella ribs)
+    ctx.lineWidth = baseStroke * 0.7;
+    const inner = t.r * 0.22;
+    const outer = t.r * 0.92;
+    for (let i = 0; i < t.segments; i++) {
+      const a = (i / t.segments) * Math.PI * 2;
+      const jr = outer * t.segJitter[i];
+      ctx.beginPath();
+      ctx.moveTo(t.cx + Math.cos(a) * inner, t.cy + Math.sin(a) * inner);
+      ctx.lineTo(t.cx + Math.cos(a) * jr, t.cy + Math.sin(a) * jr);
+      ctx.stroke();
+    }
+    // Center dot (filled)
+    ctx.beginPath();
+    ctx.arc(t.cx, t.cy, t.r * 0.13, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 // Manjericão SVG — mirrors renderManjericaoMicroscopeGrid exactly
@@ -1571,45 +1538,56 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
   const bgColor = isDark ? keyColor : CREAM;
   const shapeColor = isDark ? CREAM : keyColor;
-  const strokeW = strokeWidth(config.lineWidth || 1.5).toFixed(2); // absolute pixels, consistent across all spices
-
-  let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
+  const baseStroke = strokeWidth(config.lineWidth || 1.5);
+  const pavStrokeW = baseStroke.toFixed(2);
+  const stomaStrokeW = (baseStroke * 1.6).toFixed(2);
+  const discStrokeW = (baseStroke * 1.3).toFixed(2);
+  const ribStrokeW = (baseStroke * 0.7).toFixed(2);
 
   const layout = generateBasilLayout(width, height, config);
+  let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
-  // Layer 1: membrane outlines (stroke only)
-  for (const m of layout.membranes) {
-    const pts = organicShape(m.cx, m.cy, m.rx, m.ry, m.points, m.seed, 0.28);
-    const d = svgFromBlobPoints(pts);
-    if (d) content += `    <path d="${d}" fill="none" stroke="${shapeColor}" stroke-width="${strokeW}" stroke-linejoin="round" />\n`;
+  // Layer 1: MICRO PARTICLES
+  for (const p of layout.microParticles) {
+    content += `    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.r.toFixed(2)}" fill="${shapeColor}" />\n`;
   }
 
-  // Layer 2: medium chloroplast clusters (filled)
-  for (const c of layout.chloroplasts) {
-    const pts = organicShape(c.x, c.y, c.rx, c.ry, c.points, c.seed, 0.22);
-    const d = svgFromBlobPoints(pts);
-    if (d) content += `    <path d="${d}" fill="${shapeColor}" />\n`;
-  }
-
-  // Layer 3: trichome filaments (bead sequences)
-  for (const t of layout.trichomes) {
-    const triRng = new SeededRandom(t.seed);
-    const samples = buildTrichomeSamples(t.startX, t.startY, t.endX, t.endY, t.bendAmount, triRng, t.thickness);
-    for (const s of samples) {
-      content += `    <circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${s.r.toFixed(2)}" fill="${shapeColor}" />\n`;
-    }
-  }
-
-  // Layer 4: small grains (organic vacuoles)
-  for (const g of layout.grains) {
-    const grainRng = new SeededRandom(g.seed);
-    const d = svgFromBlobPoints(organicShape(g.x, g.y, g.r, g.r, 6, grainRng, 0.18));
+  // Layer 2: CHLOROPLAST CLUSTERS
+  for (const c of layout.chloroplastClusters) {
+    const ccRng = new SeededRandom(c.seed);
+    const d = svgFromBlobPoints(organicShape(c.x, c.y, c.r, c.r, 6, ccRng, 0.18));
     content += `    <path d="${d}" fill="${shapeColor}" />\n`;
   }
 
-  // Layer 5: micro-particles (tiny dots)
-  for (const p of layout.microParticles) {
-    content += `    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.r.toFixed(2)}" fill="${shapeColor}" />\n`;
+  // Layer 3: PAVEMENT CELLS — Voronoi epidermal mesh
+  for (const cell of layout.pavementCells) {
+    const d = getRoundedPolygonSvgPath(cell.poly, PAVEMENT_ROUNDEDNESS);
+    content += `    <path d="${d}" fill="none" stroke="${shapeColor}" stroke-width="${pavStrokeW}" stroke-linejoin="round" />\n`;
+  }
+
+  // Layer 4: STOMATA
+  for (const s of layout.stomata) {
+    const rotDeg = (s.rotation * 180 / Math.PI).toFixed(1);
+    const cxStr = s.cx.toFixed(1), cyStr = s.cy.toFixed(1);
+    content += `    <ellipse cx="${cxStr}" cy="${cyStr}" rx="${s.rx.toFixed(1)}" ry="${s.ry.toFixed(1)}" transform="rotate(${rotDeg} ${cxStr} ${cyStr})" fill="none" stroke="${shapeColor}" stroke-width="${stomaStrokeW}" />\n`;
+    content += `    <ellipse cx="${cxStr}" cy="${cyStr}" rx="${(s.rx * 0.55).toFixed(1)}" ry="${(s.ry * 0.18).toFixed(1)}" transform="rotate(${rotDeg} ${cxStr} ${cyStr})" fill="${shapeColor}" />\n`;
+  }
+
+  // Layer 5: PELTATE TRICHOMES
+  for (const t of layout.peltateTrichomes) {
+    content += `    <circle cx="${t.cx.toFixed(1)}" cy="${t.cy.toFixed(1)}" r="${t.r.toFixed(1)}" fill="none" stroke="${shapeColor}" stroke-width="${discStrokeW}" />\n`;
+    const inner = t.r * 0.22;
+    const outer = t.r * 0.92;
+    for (let i = 0; i < t.segments; i++) {
+      const a = (i / t.segments) * Math.PI * 2;
+      const jr = outer * t.segJitter[i];
+      const x1 = (t.cx + Math.cos(a) * inner).toFixed(1);
+      const y1 = (t.cy + Math.sin(a) * inner).toFixed(1);
+      const x2 = (t.cx + Math.cos(a) * jr).toFixed(1);
+      const y2 = (t.cy + Math.sin(a) * jr).toFixed(1);
+      content += `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${shapeColor}" stroke-width="${ribStrokeW}" />\n`;
+    }
+    content += `    <circle cx="${t.cx.toFixed(1)}" cy="${t.cy.toFixed(1)}" r="${(t.r * 0.13).toFixed(1)}" fill="${shapeColor}" />\n`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
