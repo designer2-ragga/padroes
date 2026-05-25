@@ -1190,92 +1190,158 @@ function svgFromBlobPoints(pts: { x: number; y: number }[]): string {
   return d + ' Z';
 }
 
-// Build sampled circle "beads" along a curved trichome filament path
-// Layout primitives (shared canvas + SVG geometry)
-interface BasilLayout {
-  pavementCells: { poly: [number, number][] }[];
-  cellInclusions: { x: number; y: number; r: number }[];
+// ─── Manjericão venation — branching leaf-vein system, NOT mesh ─────────────
+//
+// Basil reads as PLANT TISSUE not via cell membranes (which collide with the
+// Voronoi family Louro/Alho/Pimenta), but via the iconic linear-branching
+// venation pattern of any leaf. Pure lines, hierarchical thickness, dominant
+// negative space. The brand metaphor (Social = "folha do bem, leveza") is
+// honored by breathable open composition.
+
+interface Vein {
+  x1: number; y1: number;       // start
+  cx1: number; cy1: number;     // control 1
+  cx2: number; cy2: number;     // control 2
+  x2: number; y2: number;       // end
+  thickness: number;
 }
 
-// Basil epidermal pavement-cell mesh constants (local to Manjericão)
-const PAVEMENT_DENSITY_FACTOR = 15;  // → ~M=10 (denser tissue field, matches real microscopy)
-const PAVEMENT_ROUNDEDNESS = 55;     // sinuous walls, less puzzle-piece than v4
-const PAVEMENT_STRETCH = 1.25;       // mild anisotropy along rotation axis
-const INCLUSION_PROBABILITY = 0.15;  // fraction of cells receiving a small dark inclusion dot
+interface BasilLayout {
+  veins: Vein[];
+}
+
+// Venation density and proportion constants
+const VENATION_GROUP_FACTOR = 0.25;       // → ~2 leaf groups at curated default
+const VENATION_SEC_THICKNESS = 0.55;      // secondary thickness / main thickness
+const VENATION_TER_THICKNESS = 0.30;      // tertiary thickness / main thickness
+const VENATION_TERTIARY_PROB = 0.30;      // fraction of secondaries that sprout a tertiary
+
+// Evaluate cubic Bezier curve at parameter t ∈ [0, 1]
+function bezierPoint(v: Vein, t: number): { x: number; y: number } {
+  const mt = 1 - t;
+  return {
+    x: mt * mt * mt * v.x1 + 3 * mt * mt * t * v.cx1 + 3 * mt * t * t * v.cx2 + t * t * t * v.x2,
+    y: mt * mt * mt * v.y1 + 3 * mt * mt * t * v.cy1 + 3 * mt * t * t * v.cy2 + t * t * t * v.y2,
+  };
+}
+
+// Evaluate cubic Bezier tangent at parameter t (derivative, not normalized)
+function bezierTangent(v: Vein, t: number): { x: number; y: number } {
+  const mt = 1 - t;
+  return {
+    x: 3 * mt * mt * (v.cx1 - v.x1) + 6 * mt * t * (v.cx2 - v.cx1) + 3 * t * t * (v.x2 - v.cx2),
+    y: 3 * mt * mt * (v.cy1 - v.y1) + 6 * mt * t * (v.cy2 - v.cy1) + 3 * t * t * (v.y2 - v.cy2),
+  };
+}
 
 function generateBasilLayout(W: number, H: number, config: PatternConfig): BasilLayout {
   const seed = Math.round(config.layoutSeed ?? 1);
-  const rng = new SeededRandom('basil_layout_v5_' + seed);
+  const rng = new SeededRandom('basil_venation_v6_' + seed);
   const density = config.density ?? 16;
   const zoom = config.zoom ?? 100;
   const viewportArea = W * H;
-  const rotationDeg = config.rotation ?? 0;
+  const minDim = Math.min(W, H);
+  const baseStroke = strokeWidth(config.lineWidth || 1.5);
+  const sizeScale = scaleAtZoom(1, zoom, 'sqrt');
 
-  // ─── PAVEMENT CELLS — Voronoi epidermal mesh (sole dominant layer) ──────────
-  // Matches the simplicity language of the other spices (1 dominant motif + 1
-  // subtle accent). Denser than v4 to read as continuous plant tissue, like
-  // a real microscopy photograph of basil leaf epidermis.
-  const pavementCount = targetCount(density, viewportArea, PAVEMENT_DENSITY_FACTOR, zoom, true);
-  const M = Math.max(5, Math.min(20, Math.round(Math.sqrt(pavementCount))));
+  // Number of leaf-vein groups across the canvas (each = 1 main + N secondaries)
+  const nGroups = Math.max(1, targetCount(density, viewportArea, VENATION_GROUP_FACTOR, zoom, 0.6));
 
-  const jittersX: number[] = [];
-  const jittersY: number[] = [];
-  for (let d = 0; d < M * M; d++) {
-    jittersX.push(rng.range(-0.35, 0.35));
-    jittersY.push(rng.range(-0.35, 0.35));
-  }
-  const getSeed = (gi: number, gj: number) => {
-    const iWrap = (gi % M + M) % M;
-    const jWrap = (gj % M + M) % M;
-    const idx = jWrap * M + iWrap;
-    const cellW = W / M, cellH = H / M;
-    const jx = jittersX[idx] * cellW;
-    const jy = jittersY[idx] * cellH;
-    return { x: gi * cellW + cellW / 2 + jx, y: gj * cellH + cellH / 2 + jy };
-  };
+  const veins: Vein[] = [];
 
-  const { toT, fromT } = createAnisotropicTransform(PAVEMENT_STRETCH, rotationDeg);
-  const pavementCells: BasilLayout['pavementCells'] = [];
-  for (let gi = -3; gi <= M + 2; gi++) {
-    for (let gj = -3; gj <= M + 2; gj++) {
-      const s0_orig = getSeed(gi, gj);
-      const s0_t = toT(s0_orig.x, s0_orig.y);
-      let poly: [number, number][] = [
-        [s0_t.x - W * 3.0, s0_t.y - H * 3.0],
-        [s0_t.x + W * 3.0, s0_t.y - H * 3.0],
-        [s0_t.x + W * 3.0, s0_t.y + H * 3.0],
-        [s0_t.x - W * 3.0, s0_t.y + H * 3.0],
-      ];
-      for (let u = gi - 2; u <= gi + 2; u++) {
-        for (let v = gj - 2; v <= gj + 2; v++) {
-          if (u === gi && v === gj) continue;
-          const sj_orig = getSeed(u, v);
-          const sj_t = toT(sj_orig.x, sj_orig.y);
-          poly = clipPolygon(poly, s0_t, sj_t);
-        }
+  for (let g = 0; g < nGroups; g++) {
+    // Group center — distribute roughly across canvas
+    const gcx = rng.range(0.18, 0.82) * W;
+    const gcy = rng.range(0.18, 0.82) * H;
+
+    // Main vein parameters
+    const mainAngle = rng.range(0, Math.PI * 2);
+    const mainLen = rng.range(0.40, 0.65) * minDim * sizeScale;
+    const halfLen = mainLen / 2;
+    const cosA = Math.cos(mainAngle);
+    const sinA = Math.sin(mainAngle);
+    const startX = gcx - cosA * halfLen;
+    const startY = gcy - sinA * halfLen;
+    const endX = gcx + cosA * halfLen;
+    const endY = gcy + sinA * halfLen;
+
+    // Gentle arc bias (leaves curve in real life)
+    const perpX = -sinA, perpY = cosA;
+    const arcBias = rng.range(-0.12, 0.12) * mainLen;
+    const main: Vein = {
+      x1: startX, y1: startY,
+      cx1: startX + (endX - startX) * 0.33 + perpX * arcBias,
+      cy1: startY + (endY - startY) * 0.33 + perpY * arcBias,
+      cx2: startX + (endX - startX) * 0.66 + perpX * arcBias * 0.6,
+      cy2: startY + (endY - startY) * 0.66 + perpY * arcBias * 0.6,
+      x2: endX, y2: endY,
+      thickness: baseStroke,
+    };
+    veins.push(main);
+
+    // Secondary branches (6-10) sprouting from points along the main vein
+    const nSec = 6 + Math.floor(rng.range(0, 5));
+    for (let s = 0; s < nSec; s++) {
+      // Attachment point along the main, biased to mid-section
+      const t = rng.range(0.15, 0.85);
+      const pt = bezierPoint(main, t);
+      const tan = bezierTangent(main, t);
+      const tanLen = Math.sqrt(tan.x * tan.x + tan.y * tan.y) || 1;
+      const tnx = tan.x / tanLen;
+      const tny = tan.y / tanLen;
+      // Perpendicular outward (alternating sides — left/right alternation reads as venation)
+      const side = (s % 2 === 0) ? 1 : -1;
+      const pnx = -tny * side;
+      const pny = tnx * side;
+      // Forward component mixed with outward perpendicular (25–55° from main tangent)
+      const forwardWeight = rng.range(0.35, 0.75);
+      const dirX = pnx + tnx * forwardWeight;
+      const dirY = pny + tny * forwardWeight;
+      const dirLen = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+      const dnx = dirX / dirLen;
+      const dny = dirY / dirLen;
+
+      const secLen = rng.range(0.12, 0.28) * minDim * sizeScale;
+      const secEndX = pt.x + dnx * secLen;
+      const secEndY = pt.y + dny * secLen;
+
+      // Slight bend
+      const secPerpX = -dny, secPerpY = dnx;
+      const secBend = rng.range(-0.10, 0.10) * secLen;
+      const sec: Vein = {
+        x1: pt.x, y1: pt.y,
+        cx1: pt.x + (secEndX - pt.x) * 0.4 + secPerpX * secBend,
+        cy1: pt.y + (secEndY - pt.y) * 0.4 + secPerpY * secBend,
+        cx2: pt.x + (secEndX - pt.x) * 0.7 + secPerpX * secBend * 0.6,
+        cy2: pt.y + (secEndY - pt.y) * 0.7 + secPerpY * secBend * 0.6,
+        x2: secEndX, y2: secEndY,
+        thickness: baseStroke * VENATION_SEC_THICKNESS,
+      };
+      veins.push(sec);
+
+      // Tertiary fragment (~30%): continues from secondary tip with slight angle
+      if (rng.range(0, 1) < VENATION_TERTIARY_PROB) {
+        const terAngle = rng.range(-0.5, 0.5); // ±28°
+        const terCos = Math.cos(terAngle);
+        const terSin = Math.sin(terAngle);
+        const terNx = dnx * terCos - dny * terSin;
+        const terNy = dnx * terSin + dny * terCos;
+        const terLen = rng.range(0.04, 0.10) * minDim * sizeScale;
+        const terEndX = secEndX + terNx * terLen;
+        const terEndY = secEndY + terNy * terLen;
+        const ter: Vein = {
+          x1: secEndX, y1: secEndY,
+          cx1: secEndX + terNx * terLen * 0.3, cy1: secEndY + terNy * terLen * 0.3,
+          cx2: secEndX + terNx * terLen * 0.6, cy2: secEndY + terNy * terLen * 0.6,
+          x2: terEndX, y2: terEndY,
+          thickness: baseStroke * VENATION_TER_THICKNESS,
+        };
+        veins.push(ter);
       }
-      if (poly.length < 3) continue;
-      const finalPoly = poly.map(([px, py]) => fromT(px, py));
-      pavementCells.push({ poly: finalPoly });
     }
   }
 
-  // ─── CELL INCLUSIONS — sparse intracellular dots (subtle accent) ────────────
-  // ~15% of cells receive a small dark dot near the polygon centroid. Mirrors
-  // the small dark inclusions visible in real basil epidermis microscopy
-  // (lignified cell contents / inclusions). No other accent layer — keeps the
-  // pavement mesh dominant, as in the other spice patterns.
-  const cellInclusions: BasilLayout['cellInclusions'] = [];
-  for (let i = 0; i < pavementCells.length; i++) {
-    const roll = rng.range(0, 1);
-    const r = rng.range(2.0, 4.5);
-    if (roll < INCLUSION_PROBABILITY) {
-      const c = polygonCentroid(pavementCells[i].poly);
-      cellInclusions.push({ x: c.x, y: c.y, r });
-    }
-  }
-
-  return { pavementCells, cellInclusions };
+  return { veins };
 }
 
 export function renderManjericaoMicroscopeGrid(
@@ -1284,35 +1350,24 @@ export function renderManjericaoMicroscopeGrid(
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['manjericao'];
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Theme: LIGHT = bright-field (cream bg + colored structures); DARK = dark-field
+  // Non-tiling polarity: LIGHT = cream bg + colored veins; DARK = colored bg + cream veins
   const bgColor = isDark ? keyColor : CREAM;
   const shapeColor = isDark ? CREAM : keyColor;
 
-  // Solid background fill
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, W, H);
 
   const layout = generateBasilLayout(W, H, config);
-  const baseStroke = strokeWidth(config.lineWidth || 1.5);
-  ctx.fillStyle = shapeColor;
   ctx.strokeStyle = shapeColor;
+  ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Layer 1 (dominant): PAVEMENT CELLS — Voronoi epidermal mesh.
-  // Per-cell roundedness modulation (deterministic, index-based, no RNG) breaks
-  // the mathematical uniformity → walls feel biologically tensioned.
-  ctx.lineWidth = baseStroke;
-  for (let i = 0; i < layout.pavementCells.length; i++) {
-    const localRound = PAVEMENT_ROUNDEDNESS + Math.sin(i * 1.31) * 7;
-    drawRoundedPolygon(ctx, layout.pavementCells[i].poly, localRound);
-    ctx.stroke();
-  }
-
-  // Layer 2 (accent): CELL INCLUSIONS — small dots inside selected cells
-  for (const inc of layout.cellInclusions) {
+  for (const v of layout.veins) {
+    ctx.lineWidth = v.thickness;
     ctx.beginPath();
-    ctx.arc(inc.x, inc.y, inc.r, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(v.x1, v.y1);
+    ctx.bezierCurveTo(v.cx1, v.cy1, v.cx2, v.cy2, v.x2, v.y2);
+    ctx.stroke();
   }
 }
 
@@ -1323,23 +1378,12 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
   const bgColor = isDark ? keyColor : CREAM;
   const shapeColor = isDark ? CREAM : keyColor;
-  const baseStroke = strokeWidth(config.lineWidth || 1.5);
-  const pavStrokeW = baseStroke.toFixed(2);
 
   const layout = generateBasilLayout(width, height, config);
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
-  // Layer 1: PAVEMENT CELLS — Voronoi epidermal mesh with per-cell roundedness
-  // modulation (matches canvas: index-based, deterministic, no RNG).
-  for (let i = 0; i < layout.pavementCells.length; i++) {
-    const localRound = PAVEMENT_ROUNDEDNESS + Math.sin(i * 1.31) * 7;
-    const d = getRoundedPolygonSvgPath(layout.pavementCells[i].poly, localRound);
-    content += `    <path d="${d}" fill="none" stroke="${shapeColor}" stroke-width="${pavStrokeW}" stroke-linejoin="round" />\n`;
-  }
-
-  // Layer 2: CELL INCLUSIONS
-  for (const inc of layout.cellInclusions) {
-    content += `    <circle cx="${inc.x.toFixed(1)}" cy="${inc.y.toFixed(1)}" r="${inc.r.toFixed(2)}" fill="${shapeColor}" />\n`;
+  for (const v of layout.veins) {
+    content += `    <path d="M ${v.x1.toFixed(1)} ${v.y1.toFixed(1)} C ${v.cx1.toFixed(1)} ${v.cy1.toFixed(1)}, ${v.cx2.toFixed(1)} ${v.cy2.toFixed(1)}, ${v.x2.toFixed(1)} ${v.y2.toFixed(1)}" fill="none" stroke="${shapeColor}" stroke-width="${v.thickness.toFixed(2)}" stroke-linecap="round" stroke-linejoin="round" />\n`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
