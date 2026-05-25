@@ -1303,32 +1303,29 @@ function svgFromBlobPoints(pts: { x: number; y: number }[]): string {
 // Layout primitives (shared canvas + SVG geometry)
 interface BasilLayout {
   pavementCells: { poly: [number, number][] }[];
-  stomata: { cx: number; cy: number; rx: number; ry: number; rotation: number }[];
-  peltateTrichomes: { cx: number; cy: number; r: number; segments: number; segJitter: number[] }[];
-  chloroplastClusters: { x: number; y: number; r: number; seed: string }[];
-  microParticles: { x: number; y: number; r: number }[];
+  cellInclusions: { x: number; y: number; r: number }[];
 }
 
 // Basil epidermal pavement-cell mesh constants (local to Manjericão)
-const PAVEMENT_DENSITY_FACTOR = 5.5; // → ~5-6 cells across at default (zoom=260, density=16)
-const PAVEMENT_ROUNDEDNESS = 65;     // sinuous puzzle-piece walls
+const PAVEMENT_DENSITY_FACTOR = 15;  // → ~M=10 (denser tissue field, matches real microscopy)
+const PAVEMENT_ROUNDEDNESS = 55;     // sinuous walls, less puzzle-piece than v4
 const PAVEMENT_STRETCH = 1.25;       // mild anisotropy along rotation axis
+const INCLUSION_PROBABILITY = 0.15;  // fraction of cells receiving a small dark inclusion dot
 
 function generateBasilLayout(W: number, H: number, config: PatternConfig): BasilLayout {
   const seed = Math.round(config.layoutSeed ?? 1);
-  const rng = new SeededRandom('basil_layout_v4_' + seed);
+  const rng = new SeededRandom('basil_layout_v5_' + seed);
   const density = config.density ?? 16;
   const zoom = config.zoom ?? 100;
-  const minDim = Math.min(W, H);
   const viewportArea = W * H;
   const rotationDeg = config.rotation ?? 0;
 
-  // ─── PAVEMENT CELLS — Voronoi mesh (PRIMARY layer) ──────────────────────────
-  // Fewer, larger cells than Louro — reads as basil epidermal pavement tissue,
-  // not a packed Voronoi mosaic. Anisotropy + high roundedness produce the
-  // characteristic puzzle-piece sinuosity of dicot leaf epidermis.
+  // ─── PAVEMENT CELLS — Voronoi epidermal mesh (sole dominant layer) ──────────
+  // Matches the simplicity language of the other spices (1 dominant motif + 1
+  // subtle accent). Denser than v4 to read as continuous plant tissue, like
+  // a real microscopy photograph of basil leaf epidermis.
   const pavementCount = targetCount(density, viewportArea, PAVEMENT_DENSITY_FACTOR, zoom, true);
-  const M = Math.max(3, Math.min(10, Math.round(Math.sqrt(pavementCount))));
+  const M = Math.max(5, Math.min(20, Math.round(Math.sqrt(pavementCount))));
 
   const jittersX: number[] = [];
   const jittersY: number[] = [];
@@ -1372,86 +1369,22 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
     }
   }
 
-  // ─── Biomass cluster centers — non-uniform feature distribution ─────────────
-  // Tighter cluster radii → all feature layers feel more like a cohesive tissue
-  // field (less feature dispersion into empty regions).
-  const nClusters = 4 + Math.floor(rng.range(0, 5));
-  const clusters: { cx: number; cy: number; r: number }[] = [];
-  for (let i = 0; i < nClusters; i++) {
-    clusters.push({
-      cx: rng.range(-0.1, 1.1) * W,
-      cy: rng.range(-0.1, 1.1) * H,
-      r: rng.range(0.12, 0.36) * minDim,
-    });
-  }
-  const samplePoint = (clusterBias: number): { x: number; y: number } => {
-    if (rng.range(0, 1) < clusterBias) {
-      const c = clusters[Math.floor(rng.range(0, clusters.length))];
-      const a = rng.range(0, Math.PI * 2);
-      const d = c.r * Math.sqrt(rng.range(0, 1));
-      return { x: c.cx + Math.cos(a) * d, y: c.cy + Math.sin(a) * d };
+  // ─── CELL INCLUSIONS — sparse intracellular dots (subtle accent) ────────────
+  // ~15% of cells receive a small dark dot near the polygon centroid. Mirrors
+  // the small dark inclusions visible in real basil epidermis microscopy
+  // (lignified cell contents / inclusions). No other accent layer — keeps the
+  // pavement mesh dominant, as in the other spice patterns.
+  const cellInclusions: BasilLayout['cellInclusions'] = [];
+  for (let i = 0; i < pavementCells.length; i++) {
+    const roll = rng.range(0, 1);
+    const r = rng.range(2.0, 4.5);
+    if (roll < INCLUSION_PROBABILITY) {
+      const c = polygonCentroid(pavementCells[i].poly);
+      cellInclusions.push({ x: c.x, y: c.y, r });
     }
-    return { x: rng.range(0, W), y: rng.range(0, H) };
-  };
-
-  // ─── STOMATA — sparse elliptical "eye" structures (botanical anchors) ───────
-  // factor=1.5, strength=0.5 → ~6 at default; ~3 at 1200x; ~12 at 100x
-  const nStomata = Math.max(3, targetCount(density, viewportArea, 1.5, zoom, 0.5));
-  const stomaSizeScale = scaleAtZoom(1, zoom, 'sqrt');
-  const stomata: BasilLayout['stomata'] = [];
-  for (let i = 0; i < nStomata; i++) {
-    const pos = samplePoint(0.55);
-    const rx = rng.range(0.022, 0.038) * minDim * stomaSizeScale;
-    const aspect = rng.range(0.36, 0.50); // characteristically elongated
-    const rotation = rng.range(0, Math.PI);
-    stomata.push({ cx: pos.x, cy: pos.y, rx, ry: rx * aspect, rotation });
   }
 
-  // ─── PELTATE TRICHOMES — radial glandular discs (signature motif) ───────────
-  // factor=0.8, strength=0.5 → ~3 at default; ~2 at 1200x; ~6 at 100x
-  const nPeltate = Math.max(2, targetCount(density, viewportArea, 0.8, zoom, 0.5));
-  const peltateSizeScale = scaleAtZoom(1, zoom, 'sqrt');
-  const peltateTrichomes: BasilLayout['peltateTrichomes'] = [];
-  for (let i = 0; i < nPeltate; i++) {
-    const pos = samplePoint(0.45);
-    const r = rng.range(0.035, 0.062) * minDim * peltateSizeScale;
-    const segments = 8 + Math.floor(rng.range(0, 5)); // 8-12 umbrella ribs
-    // Pre-compute per-segment radial jitter so canvas + SVG draw identical spokes.
-    // Wider range (0.85–1.18) breaks any gear/clock-face perception → reads as
-    // organic glandular disc, not mechanical icon.
-    const segJitter: number[] = [];
-    for (let s = 0; s < segments; s++) segJitter.push(rng.range(0.85, 1.18));
-    peltateTrichomes.push({ cx: pos.x, cy: pos.y, r, segments, segJitter });
-  }
-
-  // ─── CHLOROPLAST CLUSTERS — intracellular particulate texture ───────────────
-  // Repurposed from former 'grains'. Tightly clustered, dense, subordinate.
-  // Higher cluster bias (0.96) and smaller mean size (1.2–3.6) make the
-  // particulate field read as intracellular granularity, not free-floating
-  // particles in empty space.
-  const nChlor = targetCount(density, viewportArea, 55.0, zoom, 0.3);
-  const chlorSizeScale = scaleAtZoom(1, zoom, 'sqrt');
-  const chloroplastClusters: BasilLayout['chloroplastClusters'] = [];
-  for (let i = 0; i < nChlor; i++) {
-    const pos = samplePoint(0.96); // tight clustering = intracellular feel
-    chloroplastClusters.push({
-      x: pos.x,
-      y: pos.y,
-      r: rng.range(1.2, 3.6) * chlorSizeScale,
-      seed: 'basil_cc_' + i + '_' + seed,
-    });
-  }
-
-  // ─── MICRO PARTICLES — cytoplasmic substrate noise ──────────────────────────
-  // factor=55, strength=0 → ambient field, always present, absolute pixel size
-  const nMicro = targetCount(density, viewportArea, 55.0, zoom, 0);
-  const microParticles: BasilLayout['microParticles'] = [];
-  for (let i = 0; i < nMicro; i++) {
-    const pos = samplePoint(0.4);
-    microParticles.push({ x: pos.x, y: pos.y, r: rng.range(0.30, 1.0) });
-  }
-
-  return { pavementCells, stomata, peltateTrichomes, chloroplastClusters, microParticles };
+  return { pavementCells, cellInclusions };
 }
 
 export function renderManjericaoMicroscopeGrid(
@@ -1474,27 +1407,9 @@ export function renderManjericaoMicroscopeGrid(
   ctx.strokeStyle = shapeColor;
   ctx.lineJoin = 'round';
 
-  // Layer 1 (back): MICRO PARTICLES — cytoplasmic substrate noise
-  for (const p of layout.microParticles) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Layer 2: CHLOROPLAST CLUSTERS — intracellular particulate texture
-  for (const c of layout.chloroplastClusters) {
-    const ccRng = new SeededRandom(c.seed);
-    ctx.save();
-    ctx.translate(c.x, c.y);
-    pathFromBlobPoints(ctx, organicShape(0, 0, c.r, c.r, 6, ccRng, 0.18));
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // Layer 3 (dominant): PAVEMENT CELLS — Voronoi epidermal mesh, sinuous walls.
+  // Layer 1 (dominant): PAVEMENT CELLS — Voronoi epidermal mesh.
   // Per-cell roundedness modulation (deterministic, index-based, no RNG) breaks
-  // the mathematical uniformity of the smoothing → walls feel biologically
-  // tensioned, with subtle variation cell-to-cell as in real epidermis.
+  // the mathematical uniformity → walls feel biologically tensioned.
   ctx.lineWidth = baseStroke;
   for (let i = 0; i < layout.pavementCells.length; i++) {
     const localRound = PAVEMENT_ROUNDEDNESS + Math.sin(i * 1.31) * 7;
@@ -1502,42 +1417,10 @@ export function renderManjericaoMicroscopeGrid(
     ctx.stroke();
   }
 
-  // Layer 4: STOMATA — sparse elliptical "eye" structures with emphasized
-  // guard-cell silhouette (thicker outer rim) and tighter aperture slit.
-  ctx.lineWidth = baseStroke * 1.8;
-  for (const s of layout.stomata) {
-    // Outer outline (guard-cell ring)
+  // Layer 2 (accent): CELL INCLUSIONS — small dots inside selected cells
+  for (const inc of layout.cellInclusions) {
     ctx.beginPath();
-    ctx.ellipse(s.cx, s.cy, s.rx, s.ry, s.rotation, 0, Math.PI * 2);
-    ctx.stroke();
-    // Inner aperture slit (filled, narrower + longer)
-    ctx.beginPath();
-    ctx.ellipse(s.cx, s.cy, s.rx * 0.65, s.ry * 0.12, s.rotation, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Layer 5 (front): PELTATE TRICHOMES — glandular discs with umbrella ribs
-  for (const t of layout.peltateTrichomes) {
-    // Outer disc outline
-    ctx.lineWidth = baseStroke * 1.3;
-    ctx.beginPath();
-    ctx.arc(t.cx, t.cy, t.r, 0, Math.PI * 2);
-    ctx.stroke();
-    // Radial segments (umbrella ribs)
-    ctx.lineWidth = baseStroke * 0.7;
-    const inner = t.r * 0.22;
-    const outer = t.r * 0.92;
-    for (let i = 0; i < t.segments; i++) {
-      const a = (i / t.segments) * Math.PI * 2;
-      const jr = outer * t.segJitter[i];
-      ctx.beginPath();
-      ctx.moveTo(t.cx + Math.cos(a) * inner, t.cy + Math.sin(a) * inner);
-      ctx.lineTo(t.cx + Math.cos(a) * jr, t.cy + Math.sin(a) * jr);
-      ctx.stroke();
-    }
-    // Center dot (filled)
-    ctx.beginPath();
-    ctx.arc(t.cx, t.cy, t.r * 0.13, 0, Math.PI * 2);
+    ctx.arc(inc.x, inc.y, inc.r, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -1551,26 +1434,11 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
   const shapeColor = isDark ? CREAM : keyColor;
   const baseStroke = strokeWidth(config.lineWidth || 1.5);
   const pavStrokeW = baseStroke.toFixed(2);
-  const stomaStrokeW = (baseStroke * 1.8).toFixed(2);
-  const discStrokeW = (baseStroke * 1.3).toFixed(2);
-  const ribStrokeW = (baseStroke * 0.7).toFixed(2);
 
   const layout = generateBasilLayout(width, height, config);
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
-  // Layer 1: MICRO PARTICLES
-  for (const p of layout.microParticles) {
-    content += `    <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.r.toFixed(2)}" fill="${shapeColor}" />\n`;
-  }
-
-  // Layer 2: CHLOROPLAST CLUSTERS
-  for (const c of layout.chloroplastClusters) {
-    const ccRng = new SeededRandom(c.seed);
-    const d = svgFromBlobPoints(organicShape(c.x, c.y, c.r, c.r, 6, ccRng, 0.18));
-    content += `    <path d="${d}" fill="${shapeColor}" />\n`;
-  }
-
-  // Layer 3: PAVEMENT CELLS — Voronoi epidermal mesh with per-cell roundedness
+  // Layer 1: PAVEMENT CELLS — Voronoi epidermal mesh with per-cell roundedness
   // modulation (matches canvas: index-based, deterministic, no RNG).
   for (let i = 0; i < layout.pavementCells.length; i++) {
     const localRound = PAVEMENT_ROUNDEDNESS + Math.sin(i * 1.31) * 7;
@@ -1578,29 +1446,9 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
     content += `    <path d="${d}" fill="none" stroke="${shapeColor}" stroke-width="${pavStrokeW}" stroke-linejoin="round" />\n`;
   }
 
-  // Layer 4: STOMATA (narrower + longer aperture slit)
-  for (const s of layout.stomata) {
-    const rotDeg = (s.rotation * 180 / Math.PI).toFixed(1);
-    const cxStr = s.cx.toFixed(1), cyStr = s.cy.toFixed(1);
-    content += `    <ellipse cx="${cxStr}" cy="${cyStr}" rx="${s.rx.toFixed(1)}" ry="${s.ry.toFixed(1)}" transform="rotate(${rotDeg} ${cxStr} ${cyStr})" fill="none" stroke="${shapeColor}" stroke-width="${stomaStrokeW}" />\n`;
-    content += `    <ellipse cx="${cxStr}" cy="${cyStr}" rx="${(s.rx * 0.65).toFixed(1)}" ry="${(s.ry * 0.12).toFixed(1)}" transform="rotate(${rotDeg} ${cxStr} ${cyStr})" fill="${shapeColor}" />\n`;
-  }
-
-  // Layer 5: PELTATE TRICHOMES
-  for (const t of layout.peltateTrichomes) {
-    content += `    <circle cx="${t.cx.toFixed(1)}" cy="${t.cy.toFixed(1)}" r="${t.r.toFixed(1)}" fill="none" stroke="${shapeColor}" stroke-width="${discStrokeW}" />\n`;
-    const inner = t.r * 0.22;
-    const outer = t.r * 0.92;
-    for (let i = 0; i < t.segments; i++) {
-      const a = (i / t.segments) * Math.PI * 2;
-      const jr = outer * t.segJitter[i];
-      const x1 = (t.cx + Math.cos(a) * inner).toFixed(1);
-      const y1 = (t.cy + Math.sin(a) * inner).toFixed(1);
-      const x2 = (t.cx + Math.cos(a) * jr).toFixed(1);
-      const y2 = (t.cy + Math.sin(a) * jr).toFixed(1);
-      content += `    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${shapeColor}" stroke-width="${ribStrokeW}" />\n`;
-    }
-    content += `    <circle cx="${t.cx.toFixed(1)}" cy="${t.cy.toFixed(1)}" r="${(t.r * 0.13).toFixed(1)}" fill="${shapeColor}" />\n`;
+  // Layer 2: CELL INCLUSIONS
+  for (const inc of layout.cellInclusions) {
+    content += `    <circle cx="${inc.x.toFixed(1)}" cy="${inc.y.toFixed(1)}" r="${inc.r.toFixed(2)}" fill="${shapeColor}" />\n`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
