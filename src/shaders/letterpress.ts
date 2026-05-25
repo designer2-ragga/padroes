@@ -2,16 +2,14 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Letterpress shader — simulates debossed printing. The shape is rendered
- * as light highlight (top-left offset) + dark shadow (bottom-right offset)
- * + main shape in bg color (visually merging with background, leaving only
- * the shadow-rim around the shape edge). Premium printed-paper / tactile
- * editorial aesthetic.
+ * Letterpress shader — debossed-print simulation with light highlight +
+ * dark shadow + bg-color fill, finished with paper grain to feel like
+ * pressed cotton paper. Premium tactile editorial aesthetic.
  */
 
 import { ShaderContext, buildCoverageMap } from './index';
+import { addPaperGrain } from './_texture';
 
-// Sample a CSS color into [R, G, B]
 function sampleColor(color: string): [number, number, number] {
   const probe = document.createElement('canvas');
   probe.width = 1; probe.height = 1;
@@ -26,15 +24,12 @@ function sampleColor(color: string): [number, number, number] {
 function shiftRGB(rgb: [number, number, number], pct: number): [number, number, number] {
   const [r, g, b] = rgb;
   const shift = (v: number) => {
-    const nv = pct > 0
-      ? v + (255 - v) * pct
-      : v + v * pct;
+    const nv = pct > 0 ? v + (255 - v) * pct : v + v * pct;
     return Math.max(0, Math.min(255, Math.round(nv)));
   };
   return [shift(r), shift(g), shift(b)];
 }
 
-// Build a canvas where coverage pixels are filled with the given RGB color
 function makeTintedShape(coverage: Uint8Array, W: number, H: number, rgb: [number, number, number]): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = W;
@@ -56,9 +51,9 @@ function makeTintedShape(coverage: Uint8Array, W: number, H: number, rgb: [numbe
 }
 
 export function applyLetterpress(c: ShaderContext): void {
-  const { dst, src, W, H, bgColor } = c;
+  const { dst, src, W, H, bgColor, config } = c;
+  const seed = Math.round(config.layoutSeed ?? 1) ^ 0x1E771E;
 
-  // Background
   dst.fillStyle = bgColor;
   dst.fillRect(0, 0, W, H);
 
@@ -66,18 +61,17 @@ export function applyLetterpress(c: ShaderContext): void {
   const off = Math.max(2, Math.round(Math.min(W, H) / 400));
 
   const bgRGB = sampleColor(bgColor);
-  const lightRGB = shiftRGB(bgRGB, 0.18);   // +18% toward white
-  const darkRGB  = shiftRGB(bgRGB, -0.30);  // -30% toward black
+  const lightRGB = shiftRGB(bgRGB, 0.18);
+  const darkRGB  = shiftRGB(bgRGB, -0.30);
 
   const lightLayer = makeTintedShape(coverage, W, H, lightRGB);
   const darkLayer  = makeTintedShape(coverage, W, H, darkRGB);
   const fillLayer  = makeTintedShape(coverage, W, H, bgRGB);
 
-  // Layer 1: light highlight offset top-left
   dst.drawImage(lightLayer, -off, -off);
-  // Layer 2: dark shadow offset bottom-right
   dst.drawImage(darkLayer, off, off);
-  // Layer 3: main shape filled with bg color (merges with background visually,
-  // leaving only the offset shadow rims as visible relief)
   dst.drawImage(fillLayer, 0, 0);
+
+  // Cotton-paper grain — patchy noise simulates pressed paper texture
+  addPaperGrain(dst, W, H, seed, 14, 2);
 }

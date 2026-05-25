@@ -2,21 +2,22 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Halftone shader — renders the pattern as a regular grid of dots whose
- * radius is proportional to local coverage. Vintage newspaper / scientific-
- * journal print aesthetic.
+ * Halftone shader — newspaper/print dot grid with sub-pixel jitter,
+ * radius variation, and paper grain to simulate real offset printing.
  */
 
 import { ShaderContext, buildCoverageMap, sampleCoverage } from './index';
+import { makeRng, addPaperGrain } from './_texture';
 
 export function applyHalftone(c: ShaderContext): void {
-  const { dst, src, W, H, bgColor, shapeColor } = c;
+  const { dst, src, W, H, bgColor, shapeColor, config } = c;
 
-  // Cell size — smaller = finer halftone. Tuned for 1200×1200.
   const cellSize = Math.max(8, Math.round(Math.min(W, H) / 90));
   const cols = Math.ceil(W / cellSize);
   const rows = Math.ceil(H / cellSize);
-  const maxR = cellSize * 0.6; // dot radius at full coverage (slight overlap to bleed)
+  const maxR = cellSize * 0.6;
+  const seed = Math.round(config.layoutSeed ?? 1) ^ 0xA1F70E;
+  const rng = makeRng(seed);
 
   dst.fillStyle = bgColor;
   dst.fillRect(0, 0, W, H);
@@ -24,16 +25,25 @@ export function applyHalftone(c: ShaderContext): void {
   const coverage = buildCoverageMap(src, W, H);
 
   dst.fillStyle = shapeColor;
+  const jitter = cellSize * 0.18;
+
   for (let r = 0; r < rows; r++) {
     for (let col = 0; col < cols; col++) {
       const x0 = col * cellSize;
       const y0 = r * cellSize;
       const cov = sampleCoverage(coverage, W, x0, y0, cellSize, cellSize);
       if (cov < 0.02) continue;
-      const dotR = maxR * Math.sqrt(cov); // sqrt scaling matches eye's perception of area
+      const baseR = maxR * Math.sqrt(cov);
+      const dotR = baseR * (0.82 + rng() * 0.36); // ±18% size variation
+      const jx = (rng() - 0.5) * jitter;
+      const jy = (rng() - 0.5) * jitter;
+      dst.globalAlpha = 0.85 + rng() * 0.15; // ink density variance
       dst.beginPath();
-      dst.arc(x0 + cellSize / 2, y0 + cellSize / 2, dotR, 0, Math.PI * 2);
+      dst.arc(x0 + cellSize / 2 + jx, y0 + cellSize / 2 + jy, dotR, 0, Math.PI * 2);
       dst.fill();
     }
   }
+  dst.globalAlpha = 1;
+
+  addPaperGrain(dst, W, H, seed, 14);
 }

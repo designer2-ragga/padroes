@@ -2,68 +2,61 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Cyanotype shader — replaces the entire palette with the iconic Prussian-
- * blue/cream of cyanotype photographic prints. Adds subtle grain texture
- * for the chemical-paper feel. Blueprint / Anna Atkins scientific archive
- * aesthetic.
+ * Cyanotype shader — Prussian-blue/cream palette swap with patchy
+ * chemical-wash variation + paper grain. Anna Atkins / blueprint
+ * scientific archive aesthetic.
  */
 
 import { ShaderContext, buildCoverageMap } from './index';
+import { makeRng, addPaperGrain } from './_texture';
 
-// Cyanotype palette: Prussian blue background, off-white/cream shapes
-const CYANO_BG = '#0F3361';      // deep Prussian blue
-const CYANO_FG = '#F4EFE0';      // creamy paper white
-
-function makeRng(seed: number) {
-  let s = (seed | 0) >>> 0;
-  return () => {
-    s = (s + 0x6D2B79F5) | 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+const CYANO_BG = '#0F3361';
+const CYANO_FG = '#F4EFE0';
 
 export function applyCyanotype(c: ShaderContext): void {
   const { dst, src, W, H, config } = c;
+  const seed = Math.round(config.layoutSeed ?? 1) ^ 0xCAFE5;
+  const rng = makeRng(seed);
 
-  // Fill canvas with cyanotype blue background
   dst.fillStyle = CYANO_BG;
   dst.fillRect(0, 0, W, H);
 
-  // Paint each shape pixel as cyanotype cream
   const coverage = buildCoverageMap(src, W, H);
   const imageData = dst.getImageData(0, 0, W, H);
   const data = imageData.data;
 
-  // Parse CYANO_FG hex
   const fgR = parseInt(CYANO_FG.slice(1, 3), 16);
   const fgG = parseInt(CYANO_FG.slice(3, 5), 16);
   const fgB = parseInt(CYANO_FG.slice(5, 7), 16);
 
-  for (let p = 0, i = 0; p < coverage.length; p++, i += 4) {
-    if (coverage[p]) {
-      data[i] = fgR;
-      data[i + 1] = fgG;
-      data[i + 2] = fgB;
+  // Chemical-wash patches — irregular brightness variations across the bg
+  // sampled at multiple low-frequency scales for organic blotchy feel.
+  const patchSeed1 = rng() * 1000;
+  const patchSeed2 = rng() * 1000;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const p = y * W + x;
+      const i = p * 4;
+      if (coverage[p]) {
+        data[i] = fgR;
+        data[i + 1] = fgG;
+        data[i + 2] = fgB;
+      } else {
+        // Smooth chemical patches — sin/cos low-freq variation
+        const wash = Math.sin((x + patchSeed1) * 0.008) * Math.cos((y + patchSeed2) * 0.011);
+        const delta = wash * 18;
+        data[i]     = clamp(data[i]     + delta);
+        data[i + 1] = clamp(data[i + 1] + delta);
+        data[i + 2] = clamp(data[i + 2] + delta);
+      }
     }
   }
-
-  // Add chemical-paper grain: random subtle brightness variation across the bg
-  const rng = makeRng(Math.round(config.layoutSeed ?? 1) ^ 0xCAFE5);
-  const grainBudget = Math.round(W * H * 0.015);
-  for (let n = 0; n < grainBudget; n++) {
-    const idx = Math.floor(rng() * coverage.length);
-    const i = idx * 4;
-    // Only grain on bg pixels
-    if (!coverage[idx]) {
-      const delta = (rng() - 0.5) * 30;
-      data[i]     = Math.max(0, Math.min(255, data[i]     + delta));
-      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + delta));
-      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + delta));
-    }
-  }
-
   dst.putImageData(imageData, 0, 0);
+
+  // High-frequency paper grain on top
+  addPaperGrain(dst, W, H, seed, 18, 2);
+}
+
+function clamp(v: number): number {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
 }
