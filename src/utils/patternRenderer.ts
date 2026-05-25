@@ -720,10 +720,13 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
     else length = baseLen * rng.range(1.25, 1.55);                       // 5% large
     if (!isValid(px, py, length)) return false;
 
-    // FLOW-ALIGNED orientation: flow field + small jitter for natural variation
-    const angle = pimentaFlowAngle(px, py, flowScale, seed) + rng.range(-0.25, 0.25);
-    // Curve direction also tied to flow (vorticity-like) — pimentas in the same
-    // flow region hook the same way, creating coherent local rhythm
+    // Orientation: flow field gives a regional bias, but wide angular jitter
+    // + occasional 180° flips ensure individual pimentas point all over the
+    // place — some sideways, some upside-down, some aligned with the flow.
+    // The result reads as "pimentas tumbling in a current", not marching ranks.
+    let angle = pimentaFlowAngle(px, py, flowScale, seed) + rng.range(-0.9, 0.9);
+    if (rng.range(0, 1) < 0.35) angle += Math.PI; // 35% flip — counter-current pimentas
+    // Curve direction tied to local flow (neighbors still hook similarly)
     const curveDir = Math.sin(pimentaFlowAngle(px + flowScale, py, flowScale, seed) - angle) < 0 ? -1 : 1;
     // Gentle curve — strong enough to read as chili bend, weak enough to NOT look
     // like a banana/crescent/eyebrow (which would emerge with strong curve + symmetric ends)
