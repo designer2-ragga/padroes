@@ -632,122 +632,104 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   return svgContent;
 }
 
-// ─── Pimenta micro-particles: organic granules inside cells ──────────────────
+// ─── Pimenta capsaicin glands — punctate field, NOT mesh ────────────────────
+//
+// Pepper microscopy shows capsaicin concentrated in discrete oil glands
+// (placental vesicles) — appearing as isolated bright droplets with a
+// clear inner core. The pattern reads as "bursts of heat in open field",
+// matching the brand metaphor: marketing/sales that "lights the fire" by
+// punctate presence rather than connected mesh. Single primitive (ring +
+// dot), size-varied tiers, cluster-biased Poisson-disc placement.
 
-// calculatePolygonArea was identical to engine/voronoi.ts polygonArea —
-// kept as a thin alias to preserve call-site stability during refactor.
-const calculatePolygonArea = polygonArea;
-
-// Inset a polygon inward toward its centroid (factor < 1 shrinks)
-function insetPolygonForParticles(poly: [number, number][], factor: number): [number, number][] {
-  if (poly.length < 3) return [];
-  let cx = 0, cy = 0;
-  for (const [x, y] of poly) { cx += x; cy += y; }
-  cx /= poly.length; cy /= poly.length;
-  return poly.map(([x, y]) => [cx + (x - cx) * factor, cy + (y - cy) * factor] as [number, number]);
+interface PimentaGland {
+  cx: number;
+  cy: number;
+  r: number;        // outer ring radius
 }
 
-// Generate particles inside a polygon using rejection sampling with Poisson-disc spacing
-function generateParticlesInPolygon(
-  poly: [number, number][],
-  cellArea: number,
-  rng: SeededRandom
-): { x: number; y: number; r: number }[] {
-  // Determine particle count based on area
-  let targetCount: number;
-  if (cellArea < 200) {
-    targetCount = rng.range(1, 4); // tiny cells: 1-3
-  } else if (cellArea < 800) {
-    targetCount = rng.range(4, 9); // medium cells: 4-8
-  } else {
-    targetCount = rng.range(9, 17); // large cells: 9-16
-  }
+// Pimenta primitive ratios
+const PIMENTA_INNER_DOT_RATIO = 0.32;   // inner dot radius / outer radius
+const PIMENTA_RING_STROKE_MULT = 1.2;   // outer ring stroke width vs base lineWidth
+const PIMENTA_DENSITY_FACTOR = 1.2;     // → ~14 glands at curated default (zoom=340, density=22)
 
-  // Calculate inset factor based on cell size (~20% inward padding)
-  // Larger cells get slightly less inset (more usable space for particles)
-  const insetFactor = cellArea < 200 ? 0.75 : cellArea < 800 ? 0.80 : 0.82;
+function generatePimentaGlands(W: number, H: number, config: PatternConfig): PimentaGland[] {
+  const seed = Math.round(config.layoutSeed ?? 1);
+  const rng = new SeededRandom('pimenta_glands_v1_' + seed);
+  const density = config.density ?? 22;
+  const zoom = config.zoom ?? 100;
+  const minDim = Math.min(W, H);
 
-  // Create inset polygon (safe region for particle placement)
-  const insetPoly = insetPolygonForParticles(poly, insetFactor);
-  if (insetPoly.length < 3) return [];
+  // Base outer radius: ~4.8% of minDim at curated default (zoom=340).
+  // Sqrt zoom scaling — glands grow with magnification but never dominate.
+  const baseR = minDim * 0.026 * scaleAtZoom(1, zoom, 'sqrt');
+  const desiredCount = Math.max(6, targetCount(density, W * H, PIMENTA_DENSITY_FACTOR, zoom, 0.5));
 
-  // Find bounding box of inset polygon
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const [x, y] of insetPoly) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
+  // Size-aware Poisson-disc placement (mirrors Orégano post-fix algorithm).
+  // minDist sized for smallest possible gland (0.45 * baseR).
+  const minDist = baseR * 0.9;
+  const offX = minDist * 2, offY = minDist * 2;
+  const cellSize = minDist / Math.SQRT2;
+  const gW = Math.ceil((W + offX * 2) / cellSize) + 1;
+  const gH = Math.ceil((H + offY * 2) / cellSize) + 1;
+  const grid: ({ x: number; y: number; r: number } | null)[] = new Array(gW * gH).fill(null);
+  const gIdx = (x: number, y: number) => {
+    const gx = Math.min(gW - 1, Math.max(0, Math.floor((x + offX) / cellSize)));
+    const gy = Math.min(gH - 1, Math.max(0, Math.floor((y + offY) / cellSize)));
+    return gy * gW + gx;
+  };
+  const isValid = (px: number, py: number, r: number) => {
+    const gx = Math.floor((px + offX) / cellSize);
+    const gy = Math.floor((py + offY) / cellSize);
+    for (let i = Math.max(0, gx - 3); i <= Math.min(gW - 1, gx + 3); i++) {
+      for (let j = Math.max(0, gy - 3); j <= Math.min(gH - 1, gy + 3); j++) {
+        const n = grid[j * gW + i];
+        if (n) {
+          const dx = px - n.x, dy = py - n.y;
+          const minSep = (r + n.r) * 0.95; // edges may just touch, no overlap
+          if (dx * dx + dy * dy < minSep * minSep) return false;
+        }
+      }
+    }
+    return true;
+  };
 
-  const particles: { x: number; y: number; r: number }[] = [];
-  const minSpacing = 12; // Poisson-disc minimum spacing between particles (in pixels)
-  const maxAttempts = targetCount * 100;
-  let attempts = 0;
-
-  while (particles.length < targetCount && attempts < maxAttempts) {
-    attempts++;
-
-    // Random point inside inset bounding box
-    const x = rng.range(minX, maxX);
-    const y = rng.range(minY, maxY);
-
-    // Check if inside inset polygon
-    if (!isPointInPolygon(x, y, insetPoly)) continue;
-
-    // Determine particle size first
-    let r: number;
+  const glands: PimentaGland[] = [];
+  const place = (px: number, py: number): boolean => {
+    // Compute size first (size-tier roll), then validate
     const sizeRoll = rng.range(0, 1);
-    if (sizeRoll < 0.70) {
-      r = rng.range(0.8, 2.0); // tiny: 70%
-    } else if (sizeRoll < 0.95) {
-      r = rng.range(2.0, 4.0); // medium: 25%
-    } else {
-      r = rng.range(4.0, 6.0); // large: 5%
-    }
+    let r: number;
+    if (sizeRoll < 0.70) r = baseR * rng.range(0.45, 0.85);       // 70% small
+    else if (sizeRoll < 0.95) r = baseR * rng.range(0.85, 1.30);  // 25% medium
+    else r = baseR * rng.range(1.30, 1.80);                       // 5% large "active"
+    if (!isValid(px, py, r)) return false;
+    glands.push({ cx: px, cy: py, r });
+    grid[gIdx(px, py)] = { x: px, y: py, r };
+    return true;
+  };
 
-    // Check spacing from existing particles (including radius)
-    let tooClose = false;
-    for (const p of particles) {
-      const dx = p.x - x;
-      const dy = p.y - y;
-      const minDist = minSpacing + r + p.r; // spacing + both radii
-      if (dx * dx + dy * dy < minDist * minDist) {
-        tooClose = true;
-        break;
-      }
-    }
-    if (tooClose) continue;
-
-    // Check distance from inset polygon boundary (particle radius must not exceed boundary)
-    let nearBoundary = false;
-    const boundaryCheckDist = r + 2; // small buffer beyond radius
-    for (let i = 0; i < insetPoly.length; i++) {
-      const p1 = insetPoly[i];
-      const p2 = insetPoly[(i + 1) % insetPoly.length];
-      // Simple line-to-point distance check
-      const dx = p2[0] - p1[0];
-      const dy = p2[1] - p1[1];
-      const lenSq = dx * dx + dy * dy;
-      if (lenSq < 0.01) continue; // skip degenerate edges
-      const t = Math.max(0, Math.min(1, ((x - p1[0]) * dx + (y - p1[1]) * dy) / lenSq));
-      const closestX = p1[0] + t * dx;
-      const closestY = p1[1] + t * dy;
-      const distSq = (x - closestX) ** 2 + (y - closestY) ** 2;
-      if (distSq < boundaryCheckDist * boundaryCheckDist) {
-        nearBoundary = true;
-        break;
-      }
-    }
-    if (nearBoundary) continue;
-
-    particles.push({ x, y, r });
+  // 2 cluster centers + 70% cluster sampling / 30% free scatter
+  const clusters: { x: number; y: number }[] = [];
+  for (let c = 0; c < 2; c++) {
+    clusters.push({ x: rng.range(0.18, 0.82) * W, y: rng.range(0.18, 0.82) * H });
+    place(clusters[c].x, clusters[c].y);
   }
 
-  return particles;
+  let attempts = 0;
+  while (glands.length < desiredCount && attempts < desiredCount * 80) {
+    attempts++;
+    if (rng.range(0, 1) < 0.70) {
+      const cc = clusters[Math.floor(rng.range(0, clusters.length))];
+      const spread = Math.min(W, H) * rng.range(0.05, 0.45);
+      const a = rng.range(0, Math.PI * 2);
+      place(cc.x + Math.cos(a) * spread * rng.range(0, 1), cc.y + Math.sin(a) * spread * rng.range(0, 1));
+    } else {
+      place(rng.range(0, W), rng.range(0, H));
+    }
+  }
+
+  return glands;
 }
 
-// Pimenta microscope grid — variable-density Voronoi (optical cross-section: large + small cells mixed)
 export function renderPimentaMicroscopeGrid(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -756,124 +738,33 @@ export function renderPimentaMicroscopeGrid(
 ) {
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['pimenta'];
-
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
+  // Non-tiling polarity (matches Sal/Manjericão/Orégano):
+  // LIGHT = bright-field (cream bg + colored glands); DARK = dark-field
+  const bgColor = isDark ? keyColor : CREAM;
+  const shapeColor = isDark ? CREAM : keyColor;
 
-  // Light: key-color bg + cream cells. Dark: cream bg + key-color cells.
-  ctx.fillStyle = isDark ? CREAM : keyColor;
+  ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, W, H);
 
-  // Canonical density semantics — see VISUAL_CALIBRATION.md.
-  // SPICE_DENSITY_FACTORS.pimenta = 1.39 → M=3 at curated default (zoom=340, density=22).
-  // Pimenta caps M at 11 (vs 22 for Louro/Alho): its multi-scale seeding adds a
-  // clustered small-cell layer on top of the M×M sparse layer, so capping the
-  // macro grid earlier prevents the canvas from drowning in tiny cells.
-  const density = config.density ?? 40;
-  const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.pimenta, config.zoom ?? 100, true);
-  const M = Math.max(2, Math.min(11, Math.round(Math.sqrt(totalCount))));
-  const roundedness = config.voronoiRoundedness ?? 42;
-  const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
+  const glands = generatePimentaGlands(W, H, config);
+  const baseStroke = strokeWidth(config.lineWidth || 1.8);
 
-  // Pepper anisotropy: stretch 1.22 (subtle elongation — Voronoi distance metric only;
-  // canvas and tile boundaries never rotate, mirroring Louro/Alho).
-  const { toT, fromT } = createAnisotropicTransform(1.22, config.rotation ?? 0);
-
-  // Seeds in canvas space with small padding to keep edge cells complete
-  const pad = 0.12;
-  const seeds: {x: number, y: number}[] = [];
-
-  // Sparse layer: large bubble cells
-  const sparseCount = Math.max(4, Math.round(M * M * 0.20));
-  for (let i = 0; i < sparseCount; i++) {
-    seeds.push({ x: rng.range(-pad, 1 + pad) * W, y: rng.range(-pad, 1 + pad) * H });
-  }
-
-  // Clustered layer: dense small-cell regions
-  const clusterCount = Math.max(2, Math.round(M * 0.85));
-  const clusterR = Math.min(W, H) / M * 0.5;
-  for (let c = 0; c < clusterCount; c++) {
-    const cx = rng.range(pad, 1 - pad) * W;
-    const cy = rng.range(pad, 1 - pad) * H;
-    const n = Math.round(rng.range(4, 11));
-    const r = clusterR * rng.range(0.55, 1.15);
-    for (let s = 0; s < n; s++) {
-      const a = rng.range(0, Math.PI * 2);
-      const d = rng.range(0, r);
-      seeds.push({ x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d });
-    }
-  }
-
-  // Voronoi computed in anisotropic (transformed) coordinate space
-  const N = seeds.length;
-  const big = Math.max(W, H) * 4;
-  const cellPolys: [number, number][][] = [];
-
-  for (let i = 0; i < N; i++) {
-    const s0_t = toT(seeds[i].x, seeds[i].y);
-    let poly: [number, number][] = [
-      [s0_t.x - big, s0_t.y - big],
-      [s0_t.x + big, s0_t.y - big],
-      [s0_t.x + big, s0_t.y + big],
-      [s0_t.x - big, s0_t.y + big],
-    ];
-    for (let j = 0; j < N; j++) {
-      if (i === j) continue;
-      const sj_t = toT(seeds[j].x, seeds[j].y);
-      poly = clipPolygon(poly, s0_t, sj_t);
-      if (poly.length < 3) break;
-    }
-    if (poly.length < 3) continue;
-
-    // Map polygon back to canvas coordinates
-    const finalPoly = poly.map(([px, py]) => fromT(px, py));
-
-    // Discard cells fully outside the canvas
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const [px, py] of finalPoly) {
-      if (px < minX) minX = px; if (px > maxX) maxX = px;
-      if (py < minY) minY = py; if (py > maxY) maxY = py;
-    }
-    if (maxX < 0 || minX > W || maxY < 0 || minY > H) continue;
-
-    cellPolys.push(finalPoly);
-  }
-
-  const wallThick = strokeWidth(config.lineWidth || 2); // absolute pixels, never scales with zoom
-  const particleRng = new SeededRandom('pimenta_particles_v1_' + Math.round(config.layoutSeed ?? 1));
-
-  // Identical geometry for both modes — fill then stroke with bg color, only colors change
-  ctx.fillStyle = isDark ? keyColor : CREAM;
-  for (const poly of cellPolys) {
-    if (poly.length < 3) continue;
-    drawRoundedPolygon(ctx, poly, roundedness);
-    ctx.fill();
-  }
-  ctx.strokeStyle = isDark ? CREAM : keyColor; // bg color as membrane line
-  ctx.lineWidth = wallThick;
-  ctx.lineJoin = 'round';
-  for (const poly of cellPolys) {
-    drawRoundedPolygon(ctx, poly, roundedness);
+  // Layer 1: Outer ring (stroked)
+  ctx.strokeStyle = shapeColor;
+  ctx.lineWidth = baseStroke * PIMENTA_RING_STROKE_MULT;
+  for (const g of glands) {
+    ctx.beginPath();
+    ctx.arc(g.cx, g.cy, g.r, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  // Render micro-particles inside each cell
-  // Particle color: opposite of cell fill (orange in light, cream in dark)
-  const particleColor = isDark ? CREAM : keyColor;
-  ctx.fillStyle = particleColor;
-
-  for (const poly of cellPolys) {
-    if (poly.length < 3) continue;
-    const area = calculatePolygonArea(poly);
-    const particles = generateParticlesInPolygon(poly, area, particleRng);
-
-    for (const particle of particles) {
-      ctx.save();
-      ctx.translate(particle.x, particle.y);
-      // Organic blob for particle (similar to vacuole, but smaller and with 5 control points)
-      pathFromBlobPoints(ctx, organicShape(0, 0, particle.r, particle.r, 5, particleRng, 0.06));
-      ctx.fill();
-      ctx.restore();
-    }
+  // Layer 2: Inner dot (filled)
+  ctx.fillStyle = shapeColor;
+  for (const g of glands) {
+    ctx.beginPath();
+    ctx.arc(g.cx, g.cy, g.r * PIMENTA_INNER_DOT_RATIO, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -1497,105 +1388,31 @@ export function renderPatternTile(
 
 }
 
-// Generate Pimenta SVG — mirrors renderPimentaMicroscopeGrid exactly (same seeds, same Voronoi, same insetPolyPx)
+// Generate Pimenta SVG — mirrors renderPimentaMicroscopeGrid exactly
 function generatePimentaSVGPatternString(config: PatternConfig, width: number, height: number): string {
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['pimenta'];
-
   const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
+  const bgColor = isDark ? keyColor : CREAM;
+  const shapeColor = isDark ? CREAM : keyColor;
+  const baseStroke = strokeWidth(config.lineWidth || 1.8);
+  const ringStrokeW = (baseStroke * PIMENTA_RING_STROKE_MULT).toFixed(2);
 
-  const W = width, H = height;
-  let tileContent = `\n      <rect width="${W}" height="${H}" fill="${isDark ? CREAM : keyColor}" />\n  `;
+  const glands = generatePimentaGlands(width, height, config);
+  let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
 
-  // Mirrors canvas exactly — see renderPimentaMicroscopeGrid above.
-  const density = config.density ?? 40;
-  const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.pimenta, config.zoom ?? 100, true);
-  const M = Math.max(2, Math.min(11, Math.round(Math.sqrt(totalCount))));
-  const roundedness = config.voronoiRoundedness ?? 42;
-  const rng = new SeededRandom('pimenta_multiscale_v2_' + Math.round(config.layoutSeed ?? 1));
-
-  // Mirror the canvas anisotropy exactly (stretch 1.22).
-  const { toT, fromT } = createAnisotropicTransform(1.22, config.rotation ?? 0);
-
-  const pad = 0.12;
-  const seeds: { x: number; y: number }[] = [];
-
-  const sparseCount = Math.max(4, Math.round(M * M * 0.20));
-  for (let i = 0; i < sparseCount; i++) {
-    seeds.push({ x: rng.range(-pad, 1 + pad) * W, y: rng.range(-pad, 1 + pad) * H });
+  // Layer 1: Outer rings
+  for (const g of glands) {
+    content += `    <circle cx="${g.cx.toFixed(1)}" cy="${g.cy.toFixed(1)}" r="${g.r.toFixed(1)}" fill="none" stroke="${shapeColor}" stroke-width="${ringStrokeW}" />\n`;
   }
 
-  const clusterCount = Math.max(2, Math.round(M * 0.85));
-  const clusterR = Math.min(W, H) / M * 0.5;
-  for (let c = 0; c < clusterCount; c++) {
-    const cx2 = rng.range(pad, 1 - pad) * W;
-    const cy2 = rng.range(pad, 1 - pad) * H;
-    const n = Math.round(rng.range(4, 11));
-    const r = clusterR * rng.range(0.55, 1.15);
-    for (let s = 0; s < n; s++) {
-      const a = rng.range(0, Math.PI * 2);
-      const d = rng.range(0, r);
-      seeds.push({ x: cx2 + Math.cos(a) * d, y: cy2 + Math.sin(a) * d });
-    }
+  // Layer 2: Inner dots
+  for (const g of glands) {
+    content += `    <circle cx="${g.cx.toFixed(1)}" cy="${g.cy.toFixed(1)}" r="${(g.r * PIMENTA_INNER_DOT_RATIO).toFixed(1)}" fill="${shapeColor}" />\n`;
   }
 
-  const N = seeds.length;
-  const big = Math.max(W, H) * 4;
-  const cellPolys: [number, number][][] = [];
-
-  for (let i = 0; i < N; i++) {
-    const s0_t = toT(seeds[i].x, seeds[i].y);
-    let poly: [number, number][] = [
-      [s0_t.x - big, s0_t.y - big],
-      [s0_t.x + big, s0_t.y - big],
-      [s0_t.x + big, s0_t.y + big],
-      [s0_t.x - big, s0_t.y + big],
-    ];
-    for (let j = 0; j < N; j++) {
-      if (i === j) continue;
-      poly = clipPolygon(poly, s0_t, toT(seeds[j].x, seeds[j].y));
-      if (poly.length < 3) break;
-    }
-    if (poly.length < 3) continue;
-
-    const finalPoly = poly.map(([px, py]) => fromT(px, py));
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const [px, py] of finalPoly) {
-      if (px < minX) minX = px; if (px > maxX) maxX = px;
-      if (py < minY) minY = py; if (py > maxY) maxY = py;
-    }
-    if (maxX < 0 || minX > W || maxY < 0 || minY > H) continue;
-    cellPolys.push(finalPoly);
-  }
-
-  const wallThick = strokeWidth(config.lineWidth || 2).toFixed(1); // absolute pixels, never scales with zoom
-  const particleRng = new SeededRandom('pimenta_particles_v1_' + Math.round(config.layoutSeed ?? 1));
-
-  for (const poly of cellPolys) {
-    const d = getRoundedPolygonSvgPath(poly, roundedness);
-    if (!d) continue;
-    const fillColor = isDark ? keyColor : CREAM;
-    const strokeColor = isDark ? CREAM : keyColor;
-    tileContent += `    <path d="${d}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${wallThick}" stroke-linejoin="round" />\n`;
-  }
-
-  // Render micro-particles inside each cell (SVG)
-  const particleColor = isDark ? CREAM : keyColor;
-
-  for (const poly of cellPolys) {
-    if (poly.length < 3) continue;
-    const area = calculatePolygonArea(poly);
-    const particles = generateParticlesInPolygon(poly, area, particleRng);
-
-    for (const particle of particles) {
-      // Organic blob path for particle (same as canvas: 5 control points, 0.06 wobble)
-      const particlePath = svgFromBlobPoints(organicShape(particle.x, particle.y, particle.r, particle.r, 5, particleRng, 0.06));
-      tileContent += `    <path d="${particlePath}" fill="${particleColor}" />\n`;
-    }
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    ${tileContent}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    ${content}</svg>`;
 }
 
 // Oregano SVG — mirrors renderOreganoMicroscopeGrid exactly
