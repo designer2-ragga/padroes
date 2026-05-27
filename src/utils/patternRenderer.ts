@@ -57,8 +57,46 @@ export const SEASONINGS_OKLCH: Record<string, OKLCHColor> = {
 // Neutral cream pole used in all theme inversions
 export const CREAM = 'oklch(96% 0.008 88.75)';
 
-// Public helper: derive (bg, shape) colors for a given spice + theme.
-// Used by the shader pipeline in PatternWorkspace.
+// ─── OKLCH → sRGB hex converter ──────────────────────────────────────────────
+// Björn Ottosson's OKLCH conversion. Used to emit hex colors in SVG exports
+// because Figma / Sketch / most legacy SVG readers do NOT support oklch().
+// Without this conversion, exported SVGs render as solid black in those tools.
+function oklchToHex(l: number, c: number, h: number): string {
+  // L is 0..1 (NOT percentage), c is chroma, h is degrees
+  const hRad = (h * Math.PI) / 180;
+  const a = c * Math.cos(hRad);
+  const b = c * Math.sin(hRad);
+  // OKLab → LMS (cubic)
+  const l_ = l + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = l - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = l - 0.0894841775 * a - 1.2914855480 * b;
+  const lc = l_ * l_ * l_;
+  const mc = m_ * m_ * m_;
+  const sc = s_ * s_ * s_;
+  // LMS → linear sRGB
+  const rLin =  4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc;
+  const gLin = -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc;
+  const bLin = -0.0041960863 * lc - 0.7034186147 * mc + 1.7076147010 * sc;
+  // linear sRGB → gamma-encoded sRGB
+  const gamma = (x: number) => x >= 0.0031308
+    ? 1.055 * Math.pow(Math.max(0, x), 1 / 2.4) - 0.055
+    : 12.92 * x;
+  const toByte = (x: number) => {
+    const v = Math.round(gamma(x) * 255);
+    return Math.max(0, Math.min(255, v));
+  };
+  const r = toByte(rLin);
+  const g = toByte(gLin);
+  const bch = toByte(bLin);
+  const hex = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${hex(r)}${hex(g)}${hex(bch)}`;
+}
+
+// Pre-computed hex of the CREAM constant (96% 0.008 88.75)
+export const CREAM_HEX = oklchToHex(0.96, 0.008, 88.75);
+
+// Public helper: derive (bg, shape) colors for a given spice + theme as OKLCH
+// strings. Used by the canvas pipeline + shader system.
 export function deriveSpiceColors(spiceId: string, themeMode: 'light' | 'dark'): { bgColor: string; shapeColor: string } {
   const ok = SEASONINGS_OKLCH[spiceId] || { l: 0.5, c: 0.1, h: 0 };
   const keyColor = `oklch(${ok.l * 100}% ${ok.c} ${ok.h})`;
@@ -66,6 +104,19 @@ export function deriveSpiceColors(spiceId: string, themeMode: 'light' | 'dark'):
   return {
     bgColor: isDark ? keyColor : CREAM,
     shapeColor: isDark ? CREAM : keyColor,
+  };
+}
+
+// Hex-color variant of deriveSpiceColors — for SVG export only.
+// Same color values as deriveSpiceColors but converted to sRGB hex so
+// Figma / Sketch / Illustrator can render them correctly.
+export function deriveSpiceColorsHex(spiceId: string, themeMode: 'light' | 'dark'): { bgColor: string; shapeColor: string } {
+  const ok = SEASONINGS_OKLCH[spiceId] || { l: 0.5, c: 0.1, h: 0 };
+  const keyHex = oklchToHex(ok.l, ok.c, ok.h);
+  const isDark = themeMode === 'dark';
+  return {
+    bgColor: isDark ? keyHex : CREAM_HEX,
+    shapeColor: isDark ? CREAM_HEX : keyHex,
   };
 }
 
@@ -245,7 +296,9 @@ export function renderLouroMicroscopeGrid(
 
   // Anisotropic Voronoi: compute in deformed space, then map back to canvas.
   // Cellular elongation factor 1.6 = visible directional tension along the rotation axis.
-  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.6, rotation);
+  // Stretch maps from anisotropy 0..100 → 1.0..2.5 (0 = circular cells, 100 = strongly elongated)
+  const louroStretch = 1.0 + ((config.anisotropy ?? 40) / 100) * 1.5;
+  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(louroStretch, rotation);
 
   // Draw cells over an extended grid area to allow seamless wrapping
   for (let gi = -4; gi <= M + 3; gi++) {
@@ -292,9 +345,10 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
   const isDark = config.themeMode === 'dark';
   const oklchConfig = SEASONINGS_OKLCH['louro'] || { l: 0.38, c: 0.18, h: 250, fallback: '#1E40AF' };
 
-  const keyColorStr = `oklch(${oklchConfig.l * 100}% ${oklchConfig.c} ${oklchConfig.h})`;
-  const wallColor = isDark ? CREAM : keyColorStr;   // bg / membrane color
-  const cellBgColor = isDark ? keyColorStr : CREAM; // cell fill
+  // SVG export uses HEX (Figma/Sketch/Illustrator don't support oklch()).
+  const keyColorStr = oklchToHex(oklchConfig.l, oklchConfig.c, oklchConfig.h);
+  const wallColor = isDark ? CREAM_HEX : keyColorStr;
+  const cellBgColor = isDark ? keyColorStr : CREAM_HEX;
 
   const rotation = config.rotation ?? 0;
 
@@ -334,7 +388,9 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
   const roundedness = config.voronoiRoundedness ?? 35;
 
   // Mirror the canvas anisotropy exactly (stretch 1.6).
-  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.6, rotation);
+  // Stretch maps from anisotropy 0..100 → 1.0..2.5 (0 = circular cells, 100 = strongly elongated)
+  const louroStretch = 1.0 + ((config.anisotropy ?? 40) / 100) * 1.5;
+  const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(louroStretch, rotation);
 
   for (let gi = -4; gi <= M + 3; gi++) {
     for (let gj = -4; gj <= M + 3; gj++) {
@@ -381,7 +437,9 @@ function getPolygonCentroid(poly: [number, number][]): { x: number; y: number } 
   return polygonCentroid(poly);
 }
 
-// Draw mitosis nucleus inside a cell
+// Draw mitosis nucleus inside a cell. `interphaseThreshold` controls the
+// probability of interphase (single nucleus) vs telophase (two nuclei).
+// Default 0.85 → 15% telophase, matching the canonical mitotic-activity value.
 function drawMitosisNucleus(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -389,13 +447,14 @@ function drawMitosisNucleus(
   size: number,
   randVal: number,
   rng: SeededRandom,
-  color: string
+  color: string,
+  interphaseThreshold: number = 0.85
 ) {
   ctx.save();
   ctx.fillStyle = color;
   ctx.translate(cx, cy);
 
-  if (randVal < 0.85) {
+  if (randVal < interphaseThreshold) {
     // Interphase (85%): Organic vacuole nucleus, slightly offset
     const ox = rng.range(-size * 0.05, size * 0.05);
     const oy = rng.range(-size * 0.05, size * 0.05);
@@ -421,18 +480,19 @@ function drawMitosisNucleus(
   ctx.restore();
 }
 
-// Generate mitosis nucleus SVG path elements
+// Generate mitosis nucleus SVG path elements. Mirrors drawMitosisNucleus.
 function generateMitosisNucleusSvg(
   cx: number,
   cy: number,
   size: number,
   randVal: number,
   rng: SeededRandom,
-  color: string
+  color: string,
+  interphaseThreshold: number = 0.85
 ): string {
   let content = '';
 
-  if (randVal < 0.85) {
+  if (randVal < interphaseThreshold) {
     const ox = cx + rng.range(-size * 0.05, size * 0.05);
     const oy = cy + rng.range(-size * 0.05, size * 0.05);
     const r = size * rng.range(0.18, 0.22);
@@ -547,7 +607,9 @@ export function renderGarlicMicroscopeGrid(
       const rngCell = new SeededRandom('garlic_cell_mitosis_' + gi + '_' + gj + '_' + Math.round(config.layoutSeed ?? 1));
       const randVal = rngCell.range(0, 1);
 
-      drawMitosisNucleus(ctx, centroid.x, centroid.y, localSize, randVal, rngCell, nucleusColor);
+      // mitoticActivity (0..100) → telophase probability → interphaseThreshold (1 - p)
+      const mitoticAct = (config.mitoticActivity ?? 15) / 100;
+      drawMitosisNucleus(ctx, centroid.x, centroid.y, localSize, randVal, rngCell, nucleusColor, 1 - mitoticAct);
     }
   }
 }
@@ -557,11 +619,12 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   const isDark = config.themeMode === 'dark';
   const oklchConfig = SEASONINGS_OKLCH['alho'] || { l: 0.72, c: 0.16, h: 85, fallback: '#D4A010' };
 
-  const keyColorStr = `oklch(${oklchConfig.l * 100}% ${oklchConfig.c} ${oklchConfig.h})`;
-  const wallColor = isDark ? CREAM : keyColorStr;   // bg / membrane / stroke color
-  const cellBgColor = isDark ? keyColorStr : CREAM; // cell fill
-  const nucleusColor = wallColor;                   // nucleus = bg (cutout through cell)
-  const bgFillColor = wallColor;                    // canvas background
+  // SVG uses HEX for compatibility with Figma/Sketch/Illustrator.
+  const keyColorStr = oklchToHex(oklchConfig.l, oklchConfig.c, oklchConfig.h);
+  const wallColor = isDark ? CREAM_HEX : keyColorStr;
+  const cellBgColor = isDark ? keyColorStr : CREAM_HEX;
+  const nucleusColor = wallColor;
+  const bgFillColor = wallColor;
   const rotation = config.rotation ?? 0;
 
   let tileContent = `\n      <rect width="${width}" height="${height}" fill="${bgFillColor}" />\n  `;
@@ -633,7 +696,8 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
       const rngCell = new SeededRandom('garlic_cell_mitosis_' + gi + '_' + gj + '_' + Math.round(config.layoutSeed ?? 1));
       const randVal = rngCell.range(0, 1);
 
-      tileContent += generateMitosisNucleusSvg(centroid.x, centroid.y, localSize, randVal, rngCell, nucleusColor);
+      const mitoticAct = (config.mitoticActivity ?? 15) / 100;
+      tileContent += generateMitosisNucleusSvg(centroid.x, centroid.y, localSize, randVal, rngCell, nucleusColor, 1 - mitoticAct);
     }
   }
 
@@ -734,15 +798,21 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
 
     // Orientation: flow field gives a regional bias, but wide angular jitter
     // + occasional 180° flips ensure individual pimentas point all over the
-    // place — some sideways, some upside-down, some aligned with the flow.
-    // The result reads as "pimentas tumbling in a current", not marching ranks.
-    let angle = pimentaFlowAngle(px, py, flowScale, seed) + rng.range(-0.9, 0.9);
-    if (rng.range(0, 1) < 0.35) angle += Math.PI; // 35% flip — counter-current pimentas
-    // Curve direction tied to local flow (neighbors still hook similarly)
+    // Wind direction (rotation param relabeled for Pimenta) — global flow bias
+    const windRad = ((config.rotation ?? 0) * Math.PI) / 180;
+    // flowCohesion 0..100 → jitter range and flip probability (0 = chaos, 100 = perfect ranks)
+    const cohesion = (config.flowCohesion ?? 30) / 100;
+    const jitterRange = (1 - cohesion) * Math.PI; // 0..π (full chaos)
+    const flipProb = (1 - cohesion) * 0.5;        // 0..50% flip
+    let angle = pimentaFlowAngle(px, py, flowScale, seed) + windRad + rng.range(-jitterRange, jitterRange);
+    if (rng.range(0, 1) < flipProb) angle += Math.PI;
+    // Curve direction tied to local flow vorticity
     const curveDir = Math.sin(pimentaFlowAngle(px + flowScale, py, flowScale, seed) - angle) < 0 ? -1 : 1;
-    // Gentle curve — strong enough to read as chili bend, weak enough to NOT look
-    // like a banana/crescent/eyebrow (which would emerge with strong curve + symmetric ends)
-    const curve = curveDir * length * rng.range(0.12, 0.22);
+    // curvature 0..100 → bend magnitude (0 = straight, 100 = strong hook)
+    const curvatureN = (config.curvature ?? 50) / 100;
+    const bendMin = 0.02 + curvatureN * 0.28;
+    const bendMax = bendMin + 0.10;
+    const curve = curveDir * length * rng.range(bendMin, bendMax);
     const baseWidth = length * PIMENTA_BASE_WIDTH_RATIO;
 
     swooshes.push({ baseX: px, baseY: py, length, angle, curve, baseWidth });
@@ -920,13 +990,16 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
     return true;
   };
 
+  // capsuleElongation 0..100 maps aspect ratio range
+  // 0 → round (0.85..0.95), 50 → current (0.48..0.78), 100 → elongated (0.20..0.40)
+  const elongationN = (config.capsuleElongation ?? 50) / 100;
+  const aspectMin = 0.95 - elongationN * 0.75; // 0.95..0.20
+  const aspectMax = aspectMin + 0.30;
+
   const spores: OreganoSpore[] = [];
   const addSpore = (px: number, py: number): boolean => {
-    // Compute actual size/orientation BEFORE validation so the check is size-aware.
-    // Rejected candidates consume 3 rng draws — intentional, ensures stable per-call
-    // RNG cost and prevents oscillation between rejection states.
     const halfH = baseH * rng.range(0.70, 1.30);
-    const aspect = rng.range(0.48, 0.78);
+    const aspect = rng.range(aspectMin, aspectMax);
     const rot = globalAngle + rng.range(-25, 25) * (Math.PI / 180);
     if (!isValid(px, py, halfH)) return false;
     spores.push({ x: px, y: py, halfH, halfW: halfH * aspect, rot, idx: spores.length });
@@ -944,11 +1017,17 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
     addSpore(cx, cy);
   }
 
+  // clusterSpread 0..100 maps spread radius range
+  // 0 → tight (0.02..0.15), 50 → current (0.08..0.46), 100 → wide (0.20..0.80)
+  const spreadN = (config.clusterSpread ?? 50) / 100;
+  const spreadMin = 0.02 + spreadN * 0.18;  // 0.02..0.20
+  const spreadMax = 0.15 + spreadN * 0.65;  // 0.15..0.80
+
   let attempts = 0;
   while (spores.length < desiredCount && attempts < desiredCount * 50) {
     attempts++;
     const cc = clusters[Math.floor(rng.range(0, clusters.length))];
-    const spread = Math.min(W, H) * rng.range(0.08, 0.46);
+    const spread = Math.min(W, H) * rng.range(spreadMin, spreadMax);
     const a = rng.range(0, Math.PI * 2);
     addSpore(cc.x + Math.cos(a) * spread * rng.range(0, 1), cc.y + Math.sin(a) * spread * rng.range(0, 1));
   }
@@ -1093,12 +1172,19 @@ function generateSalCrystalPositions(W: number, H: number, config: PatternConfig
     // Shape tier: 60% cubic (4-sided), 25% hexagonal, 15% octagonal.
     // Higher 'sides' + lower jaggedness produces rounder grains; cubes stay
     // sharp. Larger plates get slightly more jaggedness (fracture feel).
+    // crystalShape (0..1) biases tier via power-curve: 0.5=identity (current),
+    // <0.5 pushes toward 5-sided, >0.5 pushes toward 9-sided.
+    // faceting (0..1) scales jaggedness magnitude (0=smooth, 1=current, 2=fractured).
+    const crystalShapeNorm = (config.crystalShape ?? 50) / 100;
+    const facetingFactor = (config.faceting ?? 50) / 50;
     const shapeRoll = rng.range(0, 1);
+    const biasedRoll = Math.pow(shapeRoll, Math.exp(-4 * (crystalShapeNorm - 0.5)));
     let sides: number, jagged: number;
-    if (shapeRoll < 0.60) { sides = 5; jagged = 0.06; }
-    else if (shapeRoll < 0.85) { sides = 7; jagged = 0.09; }
+    if (biasedRoll < 0.60) { sides = 5; jagged = 0.06; }
+    else if (biasedRoll < 0.85) { sides = 7; jagged = 0.09; }
     else { sides = 9; jagged = 0.13; }
-    if (sizeRoll >= 0.95) jagged += 0.07; // large plates fracture more
+    jagged *= facetingFactor;
+    if (sizeRoll >= 0.95) jagged += 0.07 * facetingFactor;
     const aspect = rng.range(0.78, 1.18);
     const rotation = globalAngle + rng.range(0, Math.PI * 2);
     crystals.push({
@@ -1162,10 +1248,10 @@ export function renderSalMicroscopeGrid(
 function generateSalSVGPatternString(config: PatternConfig, width: number, height: number): string {
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['sal'];
-  const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Mirrors canvas — see renderSalMicroscopeGrid polarity note.
-  const bgColor = isDark ? keyColor : CREAM;
-  const shapeColor = isDark ? CREAM : keyColor;
+  // SVG export uses HEX (Figma compatibility).
+  const keyColor = oklchToHex(oklchCfg.l, oklchCfg.c, oklchCfg.h);
+  const bgColor = isDark ? keyColor : CREAM_HEX;
+  const shapeColor = isDark ? CREAM_HEX : keyColor;
 
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
   for (const c of generateSalCrystalPositions(width, height, config)) {
@@ -1352,16 +1438,25 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
 
     // Leaf count: 4 (1-2 visible nodes), 6 (3 nodes), or 8 (4 nodes)
     const countRoll = rng.range(0, 1);
+    // leavesPerRosette 0..100 biases the 4/6/8 distribution via power curve
+    // 0 = always 4; 50 = current 45/30/25; 100 = always 8
+    const leafCountN = (config.leavesPerRosette ?? 50) / 100;
+    const biasedCountRoll = Math.pow(countRoll, Math.exp(-3 * (leafCountN - 0.5)));
     let nLeaves: number;
-    if (countRoll < 0.45) nLeaves = 4;        // 45% — youngest 4-leaf cross
-    else if (countRoll < 0.75) nLeaves = 6;   // 30% — 6-leaf rosette
-    else nLeaves = 8;                          // 25% — full 8-leaf rosette
+    if (biasedCountRoll < 0.45) nLeaves = 4;
+    else if (biasedCountRoll < 0.75) nLeaves = 6;
+    else nLeaves = 8;
+
+    // leafShape 0..100 maps LEAF_WIDTH_RATIO from 0.18 (thin) to 0.55 (wide)
+    const leafShapeRatio = 0.18 + ((config.leafShape ?? 50) / 100) * 0.37;
+    // rosetteVariation 0..100 maps angular jitter from 0 to ±0.30 rad
+    const rosetteJitter = ((config.rosetteVariation ?? 30) / 100) * 0.30;
 
     const baseRot = rng.range(0, Math.PI * 2);
     for (let i = 0; i < nLeaves; i++) {
-      const angle = baseRot + (i / nLeaves) * Math.PI * 2 + rng.range(-0.08, 0.08);
+      const angle = baseRot + (i / nLeaves) * Math.PI * 2 + rng.range(-rosetteJitter, rosetteJitter);
       const lenVar = rosetteSize * rng.range(0.85, 1.15);
-      const widthVar = lenVar * LEAF_WIDTH_RATIO * rng.range(0.85, 1.10);
+      const widthVar = lenVar * leafShapeRatio * rng.range(0.85, 1.10);
       leaves.push({ cx, cy, angle, length: lenVar, maxWidth: widthVar });
     }
   }
@@ -1400,9 +1495,10 @@ export function renderManjericaoMicroscopeGrid(
 function generateManjericaoSVGPatternString(config: PatternConfig, width: number, height: number): string {
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['manjericao'];
-  const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  const bgColor = isDark ? keyColor : CREAM;
-  const shapeColor = isDark ? CREAM : keyColor;
+  // SVG export uses HEX (Figma compatibility).
+  const keyColor = oklchToHex(oklchCfg.l, oklchCfg.c, oklchCfg.h);
+  const bgColor = isDark ? keyColor : CREAM_HEX;
+  const shapeColor = isDark ? CREAM_HEX : keyColor;
 
   const layout = generateBasilLayout(width, height, config);
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
@@ -1463,9 +1559,10 @@ export function renderPatternTile(
 function generatePimentaSVGPatternString(config: PatternConfig, width: number, height: number): string {
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['pimenta'];
-  const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  const bgColor = isDark ? keyColor : CREAM;
-  const shapeColor = isDark ? CREAM : keyColor;
+  // SVG export uses HEX (Figma compatibility).
+  const keyColor = oklchToHex(oklchCfg.l, oklchCfg.c, oklchCfg.h);
+  const bgColor = isDark ? keyColor : CREAM_HEX;
+  const shapeColor = isDark ? CREAM_HEX : keyColor;
 
   const swooshes = generatePimentaSwooshes(width, height, config);
   let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
@@ -1484,10 +1581,10 @@ function generatePimentaSVGPatternString(config: PatternConfig, width: number, h
 function generateOreganoSVGPatternString(config: PatternConfig, width: number, height: number): string {
   const isDark = config.themeMode === 'dark';
   const oklchCfg = SEASONINGS_OKLCH['oregano'];
-  const keyColor = `oklch(${oklchCfg.l * 100}% ${oklchCfg.c} ${oklchCfg.h})`;
-  // Mirrors canvas — see renderOreganoMicroscopeGrid polarity note.
-  const bgColor = isDark ? keyColor : CREAM;
-  const cellColor = isDark ? CREAM : keyColor;
+  // SVG export uses HEX (Figma compatibility).
+  const keyColor = oklchToHex(oklchCfg.l, oklchCfg.c, oklchCfg.h);
+  const bgColor = isDark ? keyColor : CREAM_HEX;
+  const cellColor = isDark ? CREAM_HEX : keyColor;
 
   let tileContent = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
   const layoutSeed = Math.round(config.layoutSeed ?? 1);
@@ -1574,6 +1671,18 @@ export function getCuratedConfigForSeasoning(
     themeMode,
     voronoiRoundedness,
     layoutSeed: seed,
+    // Spice-specific contextual parameters — seeded with their registry defaults
+    faceting: PARAMETERS.faceting.defaults[spice],
+    crystalShape: PARAMETERS.crystalShape.defaults[spice],
+    anisotropy: PARAMETERS.anisotropy.defaults[spice],
+    mitoticActivity: PARAMETERS.mitoticActivity.defaults[spice],
+    curvature: PARAMETERS.curvature.defaults[spice],
+    flowCohesion: PARAMETERS.flowCohesion.defaults[spice],
+    leavesPerRosette: PARAMETERS.leavesPerRosette.defaults[spice],
+    leafShape: PARAMETERS.leafShape.defaults[spice],
+    rosetteVariation: PARAMETERS.rosetteVariation.defaults[spice],
+    clusterSpread: PARAMETERS.clusterSpread.defaults[spice],
+    capsuleElongation: PARAMETERS.capsuleElongation.defaults[spice],
   };
 }
 

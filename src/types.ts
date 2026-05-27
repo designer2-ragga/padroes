@@ -28,6 +28,19 @@ export interface PatternConfig {
   voronoiRoundedness: number;    // 0 to 100 (% of corner rounding for Voronoi cells, applied via cubic ease-in)
   layoutSeed: number;            // deterministic layout seed
   shader?: ShaderId;             // post-render visual filter (default 'none')
+
+  // Spice-specific contextual parameters (0..100 percent unless noted)
+  faceting?: number;             // Sal: per-vertex jaggedness multiplier
+  crystalShape?: number;         // Sal: tier-distribution bias (5/7/9-sided)
+  anisotropy?: number;           // Louro: anisotropic stretch of Voronoi cells
+  mitoticActivity?: number;      // Alho: telophase probability
+  curvature?: number;            // Pimenta: chili-swoosh hook intensity
+  flowCohesion?: number;         // Pimenta: alignment to flow field
+  leavesPerRosette?: number;     // Manjericão: 4/6/8-leaf tier bias
+  leafShape?: number;            // Manjericão: ovate width ratio
+  rosetteVariation?: number;     // Manjericão: per-leaf angular jitter
+  clusterSpread?: number;        // Orégano: spore cluster spread radius
+  capsuleElongation?: number;    // Orégano: capsule aspect ratio
 }
 
 // NOTE: per-spice parameter presets now live in src/engine/parameters.ts (PARAMETERS registry).

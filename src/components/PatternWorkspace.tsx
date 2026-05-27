@@ -6,8 +6,28 @@
 import { useEffect, useRef, useState } from 'react';
 import { PatternConfig, Seasoning, ShaderId } from '../types';
 import { renderPatternTile, generateSVGPatternString, getCuratedConfigForSeasoning, deriveSpiceColors } from '../utils/patternRenderer';
-import { PARAMETERS, SpiceId, formatParamValue } from '../engine/parameters';
+import { PARAMETERS, SpiceId, ParamId, formatParamValue } from '../engine/parameters';
 import { SHADERS, SHADER_IDS } from '../shaders';
+import { encodeConfig, decodeConfig, isSpiceId } from '../utils/configCodec';
+
+// Compile-time flag injected by vite.config.plugin.ts when building for Figma.
+// Undefined in the regular web build.
+declare const __RAGGA_FIGMA_PLUGIN__: boolean | undefined;
+const IS_FIGMA_PLUGIN =
+  typeof __RAGGA_FIGMA_PLUGIN__ !== 'undefined' && __RAGGA_FIGMA_PLUGIN__ === true;
+
+// Global (non-accent) parameters rendered first
+const GLOBAL_PARAMS: ParamId[] = ['zoom', 'density', 'rotation'];
+// Per-spice accent parameters rendered below in seasoning color
+const ACCENT_PARAMS: ParamId[] = [
+  'voronoiRoundedness', 'lineWidth',
+  'faceting', 'crystalShape',
+  'anisotropy',
+  'mitoticActivity',
+  'curvature', 'flowCohesion',
+  'leavesPerRosette', 'leafShape', 'rosetteVariation',
+  'clusterSpread', 'capsuleElongation',
+];
 import { 
   ZoomIn, 
   SlidersHorizontal, 
@@ -49,6 +69,32 @@ export default function PatternWorkspace({
   
   // Active aspect-ratio framing format preset
   const [selectedPreset, setSelectedPreset] = useState<FramePreset>(FRAME_PRESETS[0]);
+
+  // Load-from-tag input state
+  const [loadTagInput, setLoadTagInput] = useState<string>('');
+  const [loadTagError, setLoadTagError] = useState<string>('');
+
+  const applyLoadedTag = () => {
+    const raw = loadTagInput.trim();
+    if (!raw) return;
+    // Accept either a bare token string ("s42~z340") or a full filename containing
+    // "cfg.<tokens>." — extract the tokens automatically.
+    let tag = raw;
+    const m = raw.match(/cfg\.([^.]+)\./);
+    if (m) tag = m[1];
+    if (!isSpiceId(seasoning.id)) {
+      setLoadTagError('Tempero inválido.');
+      return;
+    }
+    const overlay = decodeConfig(tag, seasoning.id);
+    if (!overlay) {
+      setLoadTagError('Tag inválido. Cole apenas a parte cfg.{...} de um nome de arquivo.');
+      return;
+    }
+    setLoadTagError('');
+    setLoadTagInput('');
+    onChangeConfig({ ...config, ...overlay });
+  };
 
   // Compute dynamic physical canvas resolution based on the aspect-ratio.
   // This produces extremely crisp downloaded images scaling up to 1200px max bounds,
@@ -131,15 +177,30 @@ export default function PatternWorkspace({
     // Frame ratio change still triggers canvas resize via the canvasW/canvasH effect.
   };
 
+  // Build an informative, filesystem-safe export filename.
+  // The trailing `cfg.<tag>` block encodes EVERY differing parameter so the
+  // exact same pattern can be reconstructed later via the "Carregar" input.
+  // Examples:
+  //   Ragga-Pimenta-Quadrado-cfg.s42.svg         (only seed differs from defaults)
+  //   Ragga-Manjericao-Story-cfg.s1057~z300~ls70.png  (seed + zoom + leafShape)
+  const buildExportName = (ext: 'svg' | 'png'): string => {
+    const stripAccents = (s: string) =>
+      s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]/g, '');
+    const spice = stripAccents(seasoning.name);
+    const format = stripAccents(selectedPreset.name);
+    const cfgTag = encodeConfig(config, seasoning.id as SpiceId);
+    return `Ragga-${spice}-${format}-cfg.${cfgTag}.${ext}`;
+  };
+
   // Direct vector SVG download handler that strictly respects frame format viewBox aspect ratios
   const downloadSVG = () => {
     // Set specific viewBox constraints so the vectors conform gracefully to the frame aspect ratio
     const baseSvgSize = 1200;
-    const svgW = selectedPreset.ratio >= 1 
-      ? baseSvgSize 
+    const svgW = selectedPreset.ratio >= 1
+      ? baseSvgSize
       : Math.round(baseSvgSize * selectedPreset.ratio);
-    const svgH = selectedPreset.ratio <= 1 
-      ? baseSvgSize 
+    const svgH = selectedPreset.ratio <= 1
+      ? baseSvgSize
       : Math.round(baseSvgSize / selectedPreset.ratio);
 
     const svgStr = generateSVGPatternString(seasoning, config, svgW, svgH);
@@ -148,7 +209,7 @@ export default function PatternWorkspace({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ragga_${seasoning.id}_${selectedPreset.ratioStr.replace(':', '_')}_pattern.svg`;
+    link.download = buildExportName('svg');
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -160,8 +221,25 @@ export default function PatternWorkspace({
     const url = canvas.toDataURL('image/png');
     const link = document.createElement('a');
     link.href = url;
-    link.download = `ragga_${seasoning.id}_${selectedPreset.ratioStr.replace(':', '_')}_pattern.png`;
+    link.download = buildExportName('png');
     link.click();
+  };
+
+  // Send the SVG to the Figma plugin host for native vector insertion.
+  const insertIntoFigma = () => {
+    const baseSvgSize = 1200;
+    const svgW = selectedPreset.ratio >= 1
+      ? baseSvgSize
+      : Math.round(baseSvgSize * selectedPreset.ratio);
+    const svgH = selectedPreset.ratio <= 1
+      ? baseSvgSize
+      : Math.round(baseSvgSize / selectedPreset.ratio);
+    const svgStr = generateSVGPatternString(seasoning, config, svgW, svgH);
+    const name = buildExportName('svg').replace(/\.svg$/, '');
+    parent.postMessage(
+      { pluginMessage: { type: 'insert-svg', svg: svgStr, name } },
+      '*'
+    );
   };
 
   return (
@@ -204,25 +282,62 @@ export default function PatternWorkspace({
           Gerar Nova Composição (Randomizar)
         </button>
 
-        {/* Quiet flat download triggers beneath generator */}
-        <div className="w-full grid grid-cols-2 gap-3 mt-3">
+        {/* Export / Insert area — varies between web (download) and Figma plugin (postMessage) */}
+        {IS_FIGMA_PLUGIN ? (
+          <div className="w-full mt-3">
+            <button
+              onClick={insertIntoFigma}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-neutral-950 hover:bg-neutral-800 text-white border border-neutral-950 rounded-lg text-xs font-bold font-mono tracking-wider uppercase transition-all duration-200 active:scale-[0.99]"
+              id="insert-into-figma-btn"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Inserir no Figma
+            </button>
+          </div>
+        ) : (
+          <div className="w-full grid grid-cols-2 gap-3 mt-3">
+            <button
+              onClick={downloadPNG}
+              className="flex items-center justify-center gap-2 py-2.5 px-4 bg-transparent border border-neutral-200 hover:border-neutral-400 hover:bg-white text-neutral-700 hover:text-neutral-950 rounded-lg text-xs font-semibold font-mono tracking-wider uppercase transition-all duration-200 active:scale-[0.98]"
+              id="download-png-workspace-btn"
+            >
+              <Download className="h-3.5 w-3.5 text-neutral-400" />
+              Exportar PNG
+            </button>
+            <button
+              onClick={downloadSVG}
+              className="flex items-center justify-center gap-2 py-2.5 px-4 bg-transparent border border-neutral-200 hover:border-neutral-400 hover:bg-white text-neutral-700 hover:text-neutral-950 rounded-lg text-xs font-semibold font-mono tracking-wider uppercase transition-all duration-200 active:scale-[0.98]"
+              id="download-svg-workspace-btn"
+            >
+              <Download className="h-3.5 w-3.5 text-neutral-400" />
+              Exportar SVG
+            </button>
+          </div>
+        )}
+
+        {/* Load-from-tag — paste a cfg.{tag} portion from an exported filename to recreate */}
+        <div className="w-full mt-3 flex gap-2 items-center">
+          <input
+            type="text"
+            placeholder="Cole o cfg do nome do arquivo (ex.: s42~z340)"
+            value={loadTagInput}
+            onChange={(e) => setLoadTagInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') applyLoadedTag(); }}
+            className="flex-1 py-2 px-3 bg-white border border-neutral-200 rounded-lg text-[11px] font-mono text-neutral-700 placeholder:text-neutral-300 focus:outline-none focus:border-neutral-400 transition-colors"
+            id="load-tag-input"
+          />
           <button
-            onClick={downloadPNG}
-            className="flex items-center justify-center gap-2 py-2.5 px-4 bg-transparent border border-neutral-200 hover:border-neutral-400 hover:bg-white text-neutral-700 hover:text-neutral-950 rounded-lg text-xs font-semibold font-mono tracking-wider uppercase transition-all duration-200 active:scale-[0.98]"
-            id="download-png-workspace-btn"
+            onClick={applyLoadedTag}
+            disabled={!loadTagInput.trim()}
+            className="py-2 px-4 bg-white border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50 text-neutral-700 hover:text-neutral-950 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-[10px] font-bold font-mono tracking-wider uppercase transition-all active:scale-[0.98]"
+            id="load-tag-btn"
           >
-            <Download className="h-3.5 w-3.5 text-neutral-400" />
-            Exportar PNG
-          </button>
-          <button
-            onClick={downloadSVG}
-            className="flex items-center justify-center gap-2 py-2.5 px-4 bg-transparent border border-neutral-200 hover:border-neutral-400 hover:bg-white text-neutral-700 hover:text-neutral-950 rounded-lg text-xs font-semibold font-mono tracking-wider uppercase transition-all duration-200 active:scale-[0.98]"
-            id="download-svg-workspace-btn"
-          >
-            <Download className="h-3.5 w-3.5 text-neutral-400" />
-            Exportar SVG
+            Carregar
           </button>
         </div>
+        {loadTagError && (
+          <p className="text-[10px] font-mono text-red-500 mt-1.5" id="load-tag-error">{loadTagError}</p>
+        )}
 
       </div>
 
@@ -331,8 +446,10 @@ export default function PatternWorkspace({
           </div>
         </div>
 
-        {/* Shader / post-process filter selector */}
-        <div className="space-y-2">
+        {/* Shader / post-process filter selector — hidden in Figma plugin
+            since shaders are raster (PNG) post-process and the plugin focuses
+            on native SVG vector insertion. */}
+        {!IS_FIGMA_PLUGIN && <div className="space-y-2">
           <label className="text-[10px] font-mono font-extrabold tracking-[0.15em] text-neutral-400 uppercase block">
             Shader
           </label>
@@ -358,7 +475,7 @@ export default function PatternWorkspace({
               );
             })}
           </div>
-        </div>
+        </div>}
 
         {/* Master Tuning Sliders */}
         <div id="fine-tuning-parameters" className="space-y-6">
@@ -367,117 +484,68 @@ export default function PatternWorkspace({
             Parâmetros Morfológicos
           </h3>
 
-          {/* Global sliders — read all metadata + range from the canonical PARAMETERS registry */}
-          {PARAMETERS.zoom.visibleFor[seasoning.id as SpiceId] && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-                <span className="flex items-center gap-1.5">
-                  <ZoomIn className="h-3 w-3 text-neutral-400" /> {PARAMETERS.zoom.uiLabel}
-                </span>
-                <span className="font-mono text-neutral-500">{formatParamValue('zoom', config.zoom)}</span>
+          {/* Global parameters — neutral styling */}
+          {GLOBAL_PARAMS.map((pid) => {
+            const spec = PARAMETERS[pid];
+            if (!spec.visibleFor[seasoning.id as SpiceId]) return null;
+            const label = spec.labelOverride?.[seasoning.id as SpiceId] ?? spec.uiLabel;
+            const value = (config as unknown as Record<string, number | undefined>)[pid] ?? spec.defaults[seasoning.id as SpiceId];
+            const showIcon = pid === 'zoom';
+            return (
+              <div key={pid} className="space-y-1.5">
+                <div className="flex justify-between text-[11px] font-medium text-neutral-800">
+                  <span className={showIcon ? 'flex items-center gap-1.5' : ''}>
+                    {showIcon && <ZoomIn className="h-3 w-3 text-neutral-400" />}
+                    {label}
+                  </span>
+                  <span className="font-mono text-neutral-500">{formatParamValue(pid, value)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={spec.min}
+                  max={spec.max}
+                  step={spec.step}
+                  value={value}
+                  onChange={(e) => updateParam(pid, parseFloat(e.target.value))}
+                  className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
+                />
               </div>
-              <input
-                type="range"
-                min={PARAMETERS.zoom.min}
-                max={PARAMETERS.zoom.max}
-                step={PARAMETERS.zoom.step}
-                value={config.zoom}
-                onChange={(e) => updateParam('zoom', parseFloat(e.target.value))}
-                className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
-              />
-            </div>
-          )}
+            );
+          })}
 
-          {PARAMETERS.density.visibleFor[seasoning.id as SpiceId] && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-                <span>{PARAMETERS.density.uiLabel}</span>
-                <span className="font-mono text-neutral-500">{formatParamValue('density', config.density)}</span>
+          {/* Spice-specific accent parameters — colored in the seasoning's brand color */}
+          {ACCENT_PARAMS.map((pid) => {
+            const spec = PARAMETERS[pid];
+            if (!spec.visibleFor[seasoning.id as SpiceId]) return null;
+            const label = spec.labelOverride?.[seasoning.id as SpiceId] ?? spec.uiLabel;
+            const value = (config as unknown as Record<string, number | undefined>)[pid] ?? spec.defaults[seasoning.id as SpiceId];
+            return (
+              <div
+                key={pid}
+                className="space-y-1.5 pt-2 pb-1 border-t border-dashed border-neutral-200"
+                style={{ borderColor: `${seasoning.primaryColor}40` }}
+              >
+                <div className="flex justify-between text-[11px] font-medium text-neutral-800">
+                  <span className="font-bold flex items-center gap-1.5" style={{ color: seasoning.primaryColor }}>
+                    <Flame className="h-3 w-3" style={{ color: seasoning.primaryColor }} /> {label}
+                  </span>
+                  <span className="font-mono" style={{ color: seasoning.primaryColor }}>
+                    {formatParamValue(pid, value)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={spec.min}
+                  max={spec.max}
+                  step={spec.step}
+                  value={value}
+                  onChange={(e) => updateParam(pid, parseFloat(e.target.value))}
+                  className="w-full h-1 rounded-full cursor-pointer"
+                  style={{ accentColor: seasoning.primaryColor }}
+                />
               </div>
-              <input
-                type="range"
-                min={PARAMETERS.density.min}
-                max={PARAMETERS.density.max}
-                step={PARAMETERS.density.step}
-                value={config.density}
-                onChange={(e) => updateParam('density', parseFloat(e.target.value))}
-                className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
-              />
-            </div>
-          )}
-
-          {PARAMETERS.rotation.visibleFor[seasoning.id as SpiceId] && (
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-                <span>{PARAMETERS.rotation.uiLabel}</span>
-                <span className="font-mono text-neutral-500">{formatParamValue('rotation', config.rotation)}</span>
-              </div>
-              <input
-                type="range"
-                min={PARAMETERS.rotation.min}
-                max={PARAMETERS.rotation.max}
-                step={PARAMETERS.rotation.step}
-                value={config.rotation}
-                onChange={(e) => updateParam('rotation', parseFloat(e.target.value))}
-                className="w-full accent-neutral-950 h-1 bg-neutral-200/70 rounded-full cursor-pointer"
-              />
-            </div>
-          )}
-
-          {/* Spice-accent sliders — same registry, accent color from seasoning */}
-          {PARAMETERS.voronoiRoundedness.visibleFor[seasoning.id as SpiceId] && (
-            <div
-              className="space-y-1.5 pt-2 pb-1 border-t border-dashed border-neutral-200"
-              id="voronoi-roundedness-container"
-              style={{ borderColor: `${seasoning.primaryColor}40` }}
-            >
-              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-                <span className="font-bold flex items-center gap-1.5" style={{ color: seasoning.primaryColor }}>
-                  <Flame className="h-3 w-3" style={{ color: seasoning.primaryColor }} /> {PARAMETERS.voronoiRoundedness.uiLabel}
-                </span>
-                <span className="font-mono" style={{ color: seasoning.primaryColor }}>
-                  {formatParamValue('voronoiRoundedness', config.voronoiRoundedness ?? PARAMETERS.voronoiRoundedness.defaults[seasoning.id as SpiceId])}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={PARAMETERS.voronoiRoundedness.min}
-                max={PARAMETERS.voronoiRoundedness.max}
-                step={PARAMETERS.voronoiRoundedness.step}
-                value={config.voronoiRoundedness ?? PARAMETERS.voronoiRoundedness.defaults[seasoning.id as SpiceId]}
-                onChange={(e) => updateParam('voronoiRoundedness', parseFloat(e.target.value))}
-                className="w-full h-1 rounded-full cursor-pointer"
-                style={{ accentColor: seasoning.primaryColor }}
-                id="voronoi-roundedness-slider"
-              />
-            </div>
-          )}
-
-          {PARAMETERS.lineWidth.visibleFor[seasoning.id as SpiceId] && (
-            <div
-              className="space-y-1.5 pt-2 pb-1 border-t border-dashed border-neutral-200"
-              style={{ borderColor: `${seasoning.primaryColor}40` }}
-            >
-              <div className="flex justify-between text-[11px] font-medium text-neutral-800">
-                <span className="font-bold flex items-center gap-1.5" style={{ color: seasoning.primaryColor }}>
-                  <Flame className="h-3 w-3" style={{ color: seasoning.primaryColor }} /> {PARAMETERS.lineWidth.uiLabel}
-                </span>
-                <span className="font-mono" style={{ color: seasoning.primaryColor }}>
-                  {formatParamValue('lineWidth', config.lineWidth ?? PARAMETERS.lineWidth.defaults[seasoning.id as SpiceId])}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={PARAMETERS.lineWidth.min}
-                max={PARAMETERS.lineWidth.max}
-                step={PARAMETERS.lineWidth.step}
-                value={config.lineWidth ?? PARAMETERS.lineWidth.defaults[seasoning.id as SpiceId]}
-                onChange={(e) => updateParam('lineWidth', parseFloat(e.target.value))}
-                className="w-full h-1 rounded-full cursor-pointer"
-                style={{ accentColor: seasoning.primaryColor }}
-              />
-            </div>
-          )}
+            );
+          })}
 
         </div>
 

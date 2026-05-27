@@ -8,6 +8,25 @@ import { TEMPEROS_RAGGA, Seasoning, PatternConfig } from './types';
 import PatternWorkspace from './components/PatternWorkspace';
 import { getCuratedConfigForSeasoning } from './utils/patternRenderer';
 
+// Asset imports — Vite inlines these for the Figma plugin (single-file build)
+// and serves them as URLs for the web build. Same code path for both.
+import grupoLogo from '/public/assets/grupo-logo.svg?url';
+import iconSal from '/public/assets/icon-sal.svg?url';
+import iconLouro from '/public/assets/icon-louro.svg?url';
+import iconAlho from '/public/assets/icon-alho.svg?url';
+import iconPimenta from '/public/assets/icon-pimenta.svg?url';
+import iconManjericao from '/public/assets/icon-manjericao.svg?url';
+import iconOregano from '/public/assets/icon-oregano.svg?url';
+
+const SPICE_ICONS: Record<string, string> = {
+  sal: iconSal,
+  louro: iconLouro,
+  alho: iconAlho,
+  pimenta: iconPimenta,
+  manjericao: iconManjericao,
+  oregano: iconOregano,
+};
+
 export default function App() {
   const [selectedSeasoning, setSelectedSeasoning] = useState<Seasoning>(TEMPEROS_RAGGA[5]); // Selected Oregano by default
   
@@ -30,7 +49,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-baseline md:justify-between gap-2 border-b border-neutral-200/60 pb-5">
           <div className="space-y-1">
             <img
-              src="/assets/grupo-logo.svg"
+              src={grupoLogo}
               alt="Grupo Ragga"
               className="h-7 w-auto"
             />
@@ -78,7 +97,7 @@ export default function App() {
                   id={`seasoning-btn-${t.id}`}
                 >
                   <img
-                    src={`/assets/icon-${t.id}.svg`}
+                    src={SPICE_ICONS[t.id]}
                     alt=""
                     aria-hidden="true"
                     className={`h-5 w-auto shrink-0 ${isSelected ? 'brightness-0 invert' : ''}`}

@@ -25,7 +25,15 @@ export type SpiceId = 'sal' | 'louro' | 'alho' | 'pimenta' | 'manjericao' | 'ore
 
 export const SPICE_IDS: SpiceId[] = ['sal', 'louro', 'alho', 'pimenta', 'manjericao', 'oregano'];
 
-export type ParamId = 'zoom' | 'density' | 'rotation' | 'lineWidth' | 'voronoiRoundedness';
+export type ParamId =
+  | 'zoom' | 'density' | 'rotation' | 'lineWidth' | 'voronoiRoundedness'
+  // Spice-specific contextual parameters
+  | 'faceting' | 'crystalShape'                                  // Sal
+  | 'anisotropy'                                                 // Louro
+  | 'mitoticActivity'                                            // Alho
+  | 'curvature' | 'flowCohesion'                                 // Pimenta
+  | 'leavesPerRosette' | 'leafShape' | 'rosetteVariation'        // Manjericão
+  | 'clusterSpread' | 'capsuleElongation';                       // Orégano
 
 export interface ParamSpec {
   id: ParamId;
@@ -38,6 +46,7 @@ export interface ParamSpec {
   defaults: Record<SpiceId, number>;         // per-spice default
   visibleFor: Record<SpiceId, boolean>;      // which spices show this slider
   semantic: string;                          // engineering notes
+  labelOverride?: Partial<Record<SpiceId, string>>; // optional per-spice rename of uiLabel
 }
 
 export const PARAMETERS: Record<ParamId, ParamSpec> = {
@@ -74,8 +83,10 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     max: 180,
     step: 1,
     defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0 },
-    visibleFor: { sal: true, louro: true, alho: true, pimenta: true, manjericao: true, oregano: true },
-    semantic: 'Internal tissue anisotropy axis (0–180°, bidirectional). NEVER rotates the canvas — only biases growth direction, elongation axis, cluster flow.',
+    // Manjericão's rosettes have per-rosette random rotation — global rotation is meaningless
+    visibleFor: { sal: true, louro: true, alho: true, pimenta: true, manjericao: false, oregano: true },
+    semantic: 'Internal tissue anisotropy axis (0–180°). For Pimenta this is the wind-flow direction bias.',
+    labelOverride: { pimenta: 'Direção do Vento' },
   },
   lineWidth: {
     id: 'lineWidth',
@@ -86,8 +97,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     max: 6.0,
     step: 0.1,
     defaults: { sal: 1.6, louro: 2.2, alho: 1.4, pimenta: 1.8, manjericao: 1.5, oregano: 1.3 },
-    // Salt + Oregano don't render strokes in current engine; hidden until they do
-    visibleFor: { sal: false, louro: true, alho: true, pimenta: true, manjericao: true, oregano: false },
+    // Hidden for spices that don't render strokes (pure fill shapes)
+    visibleFor: { sal: false, louro: true, alho: true, pimenta: false, manjericao: false, oregano: false },
     semantic: 'Absolute pixel stroke thickness. MUST stay constant across zoom levels and themes — only colors invert.',
   },
   voronoiRoundedness: {
@@ -99,9 +110,122 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     max: 100,
     step: 1,
     defaults: { sal: 0, louro: 44, alho: 28, pimenta: 52, manjericao: 40, oregano: 35 },
-    // Only spices that actually render polygon cells expose this
-    visibleFor: { sal: false, louro: true, alho: true, pimenta: true, manjericao: false, oregano: false },
+    // Only Voronoi-mesh spices expose this (Pimenta is no longer a Voronoi)
+    visibleFor: { sal: false, louro: true, alho: true, pimenta: false, manjericao: false, oregano: false },
     semantic: 'Polygon corner softness (0 = rigid, 100 = fully organic). Applied via cubic ease-in for perceptual smoothness.',
+  },
+
+  // ─── Spice-specific contextual parameters ────────────────────────────────
+
+  faceting: {
+    id: 'faceting',
+    uiLabel: 'Faceting',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 50, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0 },
+    visibleFor: { sal: true, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false },
+    semantic: 'Sal: per-vertex jaggedness multiplier. 0 = perfectly smooth polygon; 100 = heavily fractured edges.',
+  },
+  crystalShape: {
+    id: 'crystalShape',
+    uiLabel: 'Forma do Cristal',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 50, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0 },
+    visibleFor: { sal: true, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false },
+    semantic: 'Sal: bias tier distribution. 0 = all 5-sided (cubic); 50 = current 60/25/15 mix; 100 = all 9-sided (octagonal).',
+  },
+  anisotropy: {
+    id: 'anisotropy',
+    uiLabel: 'Anisotropia',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 40, alho: 0, pimenta: 0, manjericao: 0, oregano: 0 },
+    visibleFor: { sal: false, louro: true, alho: false, pimenta: false, manjericao: false, oregano: false },
+    semantic: 'Louro: anisotropic stretch (0 = circular cells; 100 = elongated cells along rotation axis).',
+  },
+  mitoticActivity: {
+    id: 'mitoticActivity',
+    uiLabel: 'Atividade Mitótica',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 15, pimenta: 0, manjericao: 0, oregano: 0 },
+    visibleFor: { sal: false, louro: false, alho: true, pimenta: false, manjericao: false, oregano: false },
+    semantic: 'Alho: telophase probability. 0 = all interphase (single nuclei); 100 = all telophase (dividing pairs).',
+  },
+  curvature: {
+    id: 'curvature',
+    uiLabel: 'Curvatura',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 50, manjericao: 0, oregano: 0 },
+    visibleFor: { sal: false, louro: false, alho: false, pimenta: true, manjericao: false, oregano: false },
+    semantic: 'Pimenta: hook intensity of chili swooshes. 0 = straight needles; 100 = strong curved hooks.',
+  },
+  flowCohesion: {
+    id: 'flowCohesion',
+    uiLabel: 'Coesão do Fluxo',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 30, manjericao: 0, oregano: 0 },
+    visibleFor: { sal: false, louro: false, alho: false, pimenta: true, manjericao: false, oregano: false },
+    semantic: 'Pimenta: how aligned to the flow field. 0 = chaotic tumbling; 100 = perfectly aligned ranks.',
+  },
+  leavesPerRosette: {
+    id: 'leavesPerRosette',
+    uiLabel: 'Folhas por Roseta',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 50, oregano: 0 },
+    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false },
+    semantic: 'Manjericão: biases the 4/6/8 leaf-count tier distribution. 0 = all young 4-leaf; 100 = all mature 8-leaf.',
+  },
+  leafShape: {
+    id: 'leafShape',
+    uiLabel: 'Forma da Folha',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 50, oregano: 0 },
+    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false },
+    semantic: 'Manjericão: leaf width ratio. 0 = thin lanceolate; 50 = current ovate; 100 = wide rounded.',
+  },
+  rosetteVariation: {
+    id: 'rosetteVariation',
+    uiLabel: 'Variação por Roseta',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 30, oregano: 0 },
+    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false },
+    semantic: 'Manjericão: per-leaf angular jitter within a rosette. 0 = perfectly symmetric; 100 = chaotic asymmetry.',
+  },
+  clusterSpread: {
+    id: 'clusterSpread',
+    uiLabel: 'Espalhamento',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 50 },
+    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: true },
+    semantic: 'Orégano: spore spread radius. 0 = tightly packed clusters; 100 = wide dispersion across canvas.',
+  },
+  capsuleElongation: {
+    id: 'capsuleElongation',
+    uiLabel: 'Alongamento',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 50 },
+    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: true },
+    semantic: 'Orégano: capsule aspect ratio. 0 = round dots; 100 = elongated ellipses.',
   },
 };
 
