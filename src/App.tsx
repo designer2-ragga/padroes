@@ -17,6 +17,7 @@ import iconAlho from '/public/assets/icon-alho.svg?url';
 import iconPimenta from '/public/assets/icon-pimenta.svg?url';
 import iconManjericao from '/public/assets/icon-manjericao.svg?url';
 import iconOregano from '/public/assets/icon-oregano.svg?url';
+import iconAlecrim from '/public/assets/icon-alecrim.svg?url';
 
 const SPICE_ICONS: Record<string, string> = {
   sal: iconSal,
@@ -25,6 +26,7 @@ const SPICE_ICONS: Record<string, string> = {
   pimenta: iconPimenta,
   manjericao: iconManjericao,
   oregano: iconOregano,
+  alecrim: iconAlecrim,
 };
 
 export default function App() {

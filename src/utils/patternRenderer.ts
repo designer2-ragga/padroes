@@ -51,7 +51,8 @@ export const SEASONINGS_OKLCH: Record<string, OKLCHColor> = {
   alho: { l: 0.72, c: 0.16, h: 85, fallback: '#D4A010' },
   pimenta: { l: 0.665, c: 0.177, h: 45, fallback: '#E86820' },
   manjericao: { l: 0.35, c: 0.16, h: 350, fallback: '#8A2040' },
-  oregano: { l: 0.71, c: 0.17, h: 115, fallback: '#93B629' }
+  oregano: { l: 0.71, c: 0.17, h: 115, fallback: '#93B629' },
+  alecrim: { l: 0.4523, c: 0.1005, h: 139.81, fallback: '#35632A' }
 };
 
 // Neutral cream pole used in all theme inversions
@@ -1515,6 +1516,135 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Alecrim (Rosemary) microscopy: branched non-glandular trichomes ─────────
+//
+// The underside of a rosemary leaf is covered by dendritic ("candelabra")
+// hairs that interlock into a silvery felt protecting the leaf from sun and
+// drought. Each trichome = a foot cell with N primary arms; each arm carries
+// M secondary branches alternating sides.
+//
+// Limbs are built as tapered FILLED outlines (not strokes) so canvas and SVG
+// share one path string (canvas draws it through Path2D) and Figma receives
+// clean vector shapes. Every limb subpath winds the same way, so overlapping
+// limbs union under the default nonzero fill rule.
+//
+// Canonical pipeline: size = scaleAtZoom(sqrt), count = targetCount(strength
+// 0.7), stroke = strokeWidth (absolute px, never scales with zoom).
+
+const ALECRIM_ARM_RATIO = 0.056;      // mean arm length / minDim at zoom=100 (~85px at 1200² default)
+const ALECRIM_TIP_RATIO = 0.42;       // arm tip width / arm base width
+const ALECRIM_BRANCH_TIP_END = 0.82;  // farthest branch attachment (fraction of arm length)
+const ALECRIM_BRANCH_SPREAD = 0.62;   // how far toward the foot cell branchSpacing=100 reaches
+const BEZIER_QUARTER = 0.5523;        // cubic control distance for a quarter circle
+
+// One tapered limb with round caps, from (x0,y0) width w0 to (x1,y1) width w1.
+function alecrimLimbPath(x0: number, y0: number, x1: number, y1: number, w0: number, w1: number): string {
+  const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+  const dx = (x1 - x0) / len, dy = (y1 - y0) / len;
+  const nx = -dy, ny = dx;
+  const r0 = w0 / 2, r1 = w1 / 2, k = BEZIER_QUARTER;
+  const f = (n: number) => n.toFixed(1);
+  const pt = (x: number, y: number) => `${f(x)} ${f(y)}`;
+  // tip cap: left → apex → right
+  const tlx = x1 + nx * r1, tly = y1 + ny * r1;
+  const tax = x1 + dx * r1, tay = y1 + dy * r1;
+  const trx = x1 - nx * r1, try_ = y1 - ny * r1;
+  // base cap: right → back → left
+  const brx = x0 - nx * r0, bry = y0 - ny * r0;
+  const bbx = x0 - dx * r0, bby = y0 - dy * r0;
+  const blx = x0 + nx * r0, bly = y0 + ny * r0;
+  return `M ${pt(blx, bly)} L ${pt(tlx, tly)}`
+    + ` C ${pt(tlx + dx * k * r1, tly + dy * k * r1)} ${pt(tax + nx * k * r1, tay + ny * k * r1)} ${pt(tax, tay)}`
+    + ` C ${pt(tax - nx * k * r1, tay - ny * k * r1)} ${pt(trx + dx * k * r1, try_ + dy * k * r1)} ${pt(trx, try_)}`
+    + ` L ${pt(brx, bry)}`
+    + ` C ${pt(brx - dx * k * r0, bry - dy * k * r0)} ${pt(bbx - nx * k * r0, bby - ny * k * r0)} ${pt(bbx, bby)}`
+    + ` C ${pt(bbx + nx * k * r0, bby + ny * k * r0)} ${pt(blx - dx * k * r0, bly - dy * k * r0)} ${pt(blx, bly)} Z`;
+}
+
+// Returns one SVG path string per trichome. Same seed → identical canvas + SVG.
+function generateAlecrimTrichomes(W: number, H: number, config: PatternConfig): string[] {
+  const density = config.density ?? 18;
+  const zoom = config.zoom ?? 160;
+  const rng = new SeededRandom('alecrim_trichome_v1_' + Math.round(config.layoutSeed ?? 1));
+
+  const nArms = Math.round(config.armCount ?? 5);
+  const nBranches = Math.round(config.branchCount ?? 2);
+  const spacingN = (config.branchSpacing ?? 50) / 100;
+  const armW = strokeWidth(config.lineWidth || 4.2) * 2;
+
+  const armLen = Math.min(W, H) * ALECRIM_ARM_RATIO * scaleAtZoom(1, zoom, 'sqrt');
+
+  // Trichomes bleed past the frame by one arm length so edges stay as dense as the middle.
+  const pad = armLen;
+  const PW = W + pad * 2, PH = H + pad * 2;
+  const count = Math.max(4, Math.round(
+    targetCount(density, W * H, SPICE_DENSITY_FACTORS.alecrim, zoom, 0.7) * (PW * PH) / (W * H)
+  ));
+  // Spacing follows count (density), never size (zoom): neighbors interlock into felt.
+  const minSep = Math.sqrt((PW * PH) / count) * 0.8;
+
+  const feet: { x: number; y: number }[] = [];
+  for (let attempts = 0; feet.length < count && attempts < count * 60; attempts++) {
+    const x = rng.range(-pad, W + pad), y = rng.range(-pad, H + pad);
+    if (feet.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > minSep * minSep)) feet.push({ x, y });
+  }
+
+  // Branch attachment window along the arm: spacing 0 → single fork near the tip,
+  // spacing 100 → branches spread from near the foot cell to the tip.
+  const tEnd = ALECRIM_BRANCH_TIP_END;
+  const tStart = tEnd - spacingN * ALECRIM_BRANCH_SPREAD;
+
+  return feet.map(({ x: cx, y: cy }) => {
+    let d = '';
+    const a0 = rng.range(0, Math.PI * 2);
+    for (let k = 0; k < nArms; k++) {
+      const a = a0 + (k * Math.PI * 2) / nArms + rng.range(-0.22, 0.22);
+      const L = armLen * rng.range(0.8, 1.2);
+      d += alecrimLimbPath(cx, cy, cx + Math.cos(a) * L, cy + Math.sin(a) * L, armW, armW * ALECRIM_TIP_RATIO);
+
+      for (let b = 0; b < nBranches; b++) {
+        const t = nBranches === 1 ? (tStart + tEnd) / 2 : tEnd - ((tEnd - tStart) * b) / (nBranches - 1);
+        const side = (b % 2 === 0 ? 1 : -1) * (k % 2 === 0 ? 1 : -1);
+        // Branches sharing a fork point fan out instead of stacking on the same angle.
+        const ang = a + side * (0.5 + 0.2 * Math.floor(b / 2) + rng.range(-0.08, 0.12));
+        const bl = L * rng.range(0.36, 0.5) * (1.15 - 0.3 * t);
+        const wAt = armW + (armW * ALECRIM_TIP_RATIO - armW) * t;
+        const bx = cx + Math.cos(a) * L * t, by = cy + Math.sin(a) * L * t;
+        d += ' ' + alecrimLimbPath(bx, by, bx + Math.cos(ang) * bl, by + Math.sin(ang) * bl, wAt * 0.8, armW * 0.32);
+      }
+      d += ' ';
+    }
+    // Foot cell: a round hub that hides the arm joints.
+    const r = armW * 1.1;
+    d += alecrimLimbPath(cx - 0.01, cy, cx + 0.01, cy, r * 2, r * 2);
+    return d;
+  });
+}
+
+export function renderAlecrimMicroscopeGrid(
+  ctx: CanvasRenderingContext2D, W: number, H: number, config: PatternConfig
+) {
+  // Polarity matches Orégano: LIGHT = cream bg + keyColor hairs; DARK = inverted.
+  const { bgColor, shapeColor } = deriveSpiceColors('alecrim', config.themeMode);
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = shapeColor;
+  for (const d of generateAlecrimTrichomes(W, H, config)) ctx.fill(new Path2D(d));
+}
+
+// Alecrim SVG — mirrors renderAlecrimMicroscopeGrid exactly (same path strings)
+function generateAlecrimSVGPatternString(config: PatternConfig, width: number, height: number): string {
+  const { bgColor, shapeColor } = deriveSpiceColorsHex('alecrim', config.themeMode);
+  let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
+  for (const d of generateAlecrimTrichomes(width, height, config)) {
+    content += `    <path d="${d}" fill="${shapeColor}" />\n`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    ${content}</svg>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Master pattern tile generator
 export function renderPatternTile(
   ctx: CanvasRenderingContext2D,
@@ -1550,6 +1680,11 @@ export function renderPatternTile(
 
   if (seasoning.id === 'sal') {
     renderSalMicroscopeGrid(ctx, width, height, config);
+    return;
+  }
+
+  if (seasoning.id === 'alecrim') {
+    renderAlecrimMicroscopeGrid(ctx, width, height, config);
     return;
   }
 
@@ -1630,7 +1765,11 @@ export function generateSVGPatternString(
     return generateSalSVGPatternString(config, width, height);
   }
 
-  // All 6 known spice ids are dispatched above. This branch is unreachable
+  if (seasoning.id === 'alecrim') {
+    return generateAlecrimSVGPatternString(config, width, height);
+  }
+
+  // All 7 known spice ids are dispatched above. This branch is unreachable
   // for valid inputs; throw rather than silently return empty SVG.
   throw new Error(`generateSVGPatternString: unknown seasoning id "${seasoning.id}"`);
 }
@@ -1683,6 +1822,9 @@ export function getCuratedConfigForSeasoning(
     rosetteVariation: PARAMETERS.rosetteVariation.defaults[spice],
     clusterSpread: PARAMETERS.clusterSpread.defaults[spice],
     capsuleElongation: PARAMETERS.capsuleElongation.defaults[spice],
+    armCount: PARAMETERS.armCount.defaults[spice],
+    branchCount: PARAMETERS.branchCount.defaults[spice],
+    branchSpacing: PARAMETERS.branchSpacing.defaults[spice],
   };
 }
 

@@ -20,7 +20,7 @@ Você precisa do Figma desktop (web não suporta plugins locais).
 1. Abra qualquer arquivo Figma
 2. Menu: `Plugins` → `Development` → `Padrões Ragga`
 3. Janela do plugin abre com o gerador completo:
-   - Selecione um spice (Sal, Louro, Alho, Pimenta, Manjericão, Orégano)
+   - Selecione um spice (Sal, Louro, Alho, Pimenta, Manjericão, Orégano, Alecrim)
    - Ajuste sliders (zoom, densidade, parâmetros contextuais)
    - Escolha aspect ratio (Quadrado, Paisagem, Cinema, Retrato, Story)
    - Tema claro/escuro

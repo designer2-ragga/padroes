@@ -27,6 +27,7 @@ const ACCENT_PARAMS: ParamId[] = [
   'curvature', 'flowCohesion',
   'leavesPerRosette', 'leafShape', 'rosetteVariation',
   'clusterSpread', 'capsuleElongation',
+  'armCount', 'branchCount', 'branchSpacing',
 ];
 import { 
   ZoomIn, 

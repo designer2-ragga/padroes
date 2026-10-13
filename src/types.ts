@@ -41,6 +41,9 @@ export interface PatternConfig {
   rosetteVariation?: number;     // Manjericão: per-leaf angular jitter
   clusterSpread?: number;        // Orégano: spore cluster spread radius
   capsuleElongation?: number;    // Orégano: capsule aspect ratio
+  armCount?: number;             // Alecrim: primary arms per trichome (3..8)
+  branchCount?: number;          // Alecrim: secondary branches per arm (0..4)
+  branchSpacing?: number;        // Alecrim: gap between branches along the arm
 }
 
 // NOTE: per-spice parameter presets now live in src/engine/parameters.ts (PARAMETERS registry).
@@ -106,6 +109,18 @@ export const TEMPEROS_RAGGA: Seasoning[] = [
     primaryColor: '#93B629',
     secondaryColor: '#D4EC7F',
     metaphor: 'O orégano é a erva seca com alta estabilidade olfativa e gustativa, o tempero universal das pizzarias francesas e italianas. Simboliza a franquia: altamente transportável, idêntica na matriz e na filial, replicando o mesmo sucesso.'
+  },
+  {
+    // TODO: vertical, descrição e metáfora ainda não definidas pela marca.
+    // O padrão é o tricoma ramificado do verso da folha do alecrim.
+    id: 'alecrim',
+    name: 'Alecrim',
+    emoji: '🌿',
+    division: 'A definir',
+    description: 'A definir',
+    primaryColor: '#35632A',
+    secondaryColor: '#7FA86E',
+    metaphor: 'A definir'
   }
 ];
 
