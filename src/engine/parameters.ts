@@ -21,9 +21,9 @@
  * No other file should hardcode parameter ranges or defaults.
  */
 
-export type SpiceId = 'sal' | 'louro' | 'alho' | 'pimenta' | 'manjericao' | 'oregano' | 'alecrim';
+export type SpiceId = 'grupo' | 'sal' | 'louro' | 'alho' | 'pimenta' | 'manjericao' | 'oregano' | 'alecrim';
 
-export const SPICE_IDS: SpiceId[] = ['sal', 'louro', 'alho', 'pimenta', 'manjericao', 'oregano', 'alecrim'];
+export const SPICE_IDS: SpiceId[] = ['grupo', 'sal', 'louro', 'alho', 'pimenta', 'manjericao', 'oregano', 'alecrim'];
 
 export type ParamId =
   | 'zoom' | 'density' | 'rotation' | 'lineWidth' | 'voronoiRoundedness'
@@ -34,7 +34,8 @@ export type ParamId =
   | 'curvature' | 'flowCohesion'                                 // Pimenta
   | 'leavesPerRosette' | 'leafShape' | 'rosetteVariation'        // Manjericão
   | 'clusterSpread' | 'capsuleElongation'                        // Orégano
-  | 'armCount' | 'branchCount' | 'branchSpacing';                // Alecrim
+  | 'armCount' | 'branchCount' | 'branchSpacing'                 // Alecrim
+  | 'piecesVariation' | 'piecesSpacing' | 'piecesRotation';      // Grupo
 
 export interface ParamSpec {
   id: ParamId;
@@ -59,9 +60,10 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     min: 40,
     max: 1200,
     step: 1,
-    defaults: { sal: 120, louro: 220, alho: 180, pimenta: 340, manjericao: 260, oregano: 140, alecrim: 160 },
-    visibleFor: { sal: true, louro: true, alho: true, pimenta: true, manjericao: true, oregano: true, alecrim: true },
+    defaults: { grupo: 100, sal: 120, louro: 220, alho: 180, pimenta: 340, manjericao: 260, oregano: 140, alecrim: 160 },
+    visibleFor: { grupo: true, sal: true, louro: true, alho: true, pimenta: true, manjericao: true, oregano: true, alecrim: true },
     semantic: 'Microscope magnification. Affects ONLY structure size — never count, stroke, or spacing. Log-scaled internally for perceptual smoothness.',
+    labelOverride: { grupo: 'Tamanho das Peças' },
   },
   density: {
     id: 'density',
@@ -71,8 +73,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     min: 2,
     max: 40,
     step: 1,
-    defaults: { sal: 18, louro: 9, alho: 14, pimenta: 22, manjericao: 16, oregano: 28, alecrim: 18 },
-    visibleFor: { sal: true, louro: true, alho: true, pimenta: true, manjericao: true, oregano: true, alecrim: true },
+    defaults: { grupo: 24, sal: 18, louro: 9, alho: 14, pimenta: 22, manjericao: 16, oregano: 28, alecrim: 18 },
+    visibleFor: { grupo: true, sal: true, louro: true, alho: true, pimenta: true, manjericao: true, oregano: true, alecrim: true },
     semantic: 'Average structures visible in viewport. Affects ONLY count — never size or spacing directly.',
   },
   rotation: {
@@ -83,9 +85,9 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     min: 0,
     max: 180,
     step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
     // Manjericão's rosettes have per-rosette random rotation — global rotation is meaningless
-    visibleFor: { sal: true, louro: true, alho: true, pimenta: true, manjericao: false, oregano: true, alecrim: false },
+    visibleFor: { grupo: false, sal: true, louro: true, alho: true, pimenta: true, manjericao: false, oregano: true, alecrim: false },
     semantic: 'Internal tissue anisotropy axis (0–180°). For Pimenta this is the wind-flow direction bias.',
     labelOverride: { pimenta: 'Direção do Vento' },
   },
@@ -97,9 +99,9 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     min: 0.5,
     max: 6.0,
     step: 0.1,
-    defaults: { sal: 1.6, louro: 2.2, alho: 1.4, pimenta: 1.8, manjericao: 1.5, oregano: 1.3, alecrim: 4.2 },
+    defaults: { grupo: 0, sal: 1.6, louro: 2.2, alho: 1.4, pimenta: 1.8, manjericao: 1.5, oregano: 1.3, alecrim: 4.2 },
     // Hidden for spices that don't render strokes (pure fill shapes)
-    visibleFor: { sal: false, louro: true, alho: true, pimenta: false, manjericao: false, oregano: false, alecrim: true },
+    visibleFor: { grupo: false, sal: false, louro: true, alho: true, pimenta: false, manjericao: false, oregano: false, alecrim: true },
     semantic: 'Absolute pixel stroke thickness. MUST stay constant across zoom levels and themes — only colors invert. Alecrim: base width of each trichome arm = 2 × this value.',
     labelOverride: { alecrim: 'Espessura do Traço' },
   },
@@ -111,9 +113,9 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     min: 0,
     max: 100,
     step: 1,
-    defaults: { sal: 0, louro: 44, alho: 28, pimenta: 52, manjericao: 40, oregano: 35, alecrim: 0 },
+    defaults: { grupo: 0, sal: 0, louro: 44, alho: 28, pimenta: 52, manjericao: 40, oregano: 35, alecrim: 0 },
     // Only Voronoi-mesh spices expose this (Pimenta is no longer a Voronoi)
-    visibleFor: { sal: false, louro: true, alho: true, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    visibleFor: { grupo: false, sal: false, louro: true, alho: true, pimenta: false, manjericao: false, oregano: false, alecrim: false },
     semantic: 'Polygon corner softness (0 = rigid, 100 = fully organic). Applied via cubic ease-in for perceptual smoothness.',
   },
 
@@ -125,8 +127,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 50, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: true, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 50, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: true, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
     semantic: 'Sal: per-vertex jaggedness multiplier. 0 = perfectly smooth polygon; 100 = heavily fractured edges.',
   },
   crystalShape: {
@@ -135,8 +137,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 50, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: true, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 50, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: true, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
     semantic: 'Sal: bias tier distribution. 0 = all 5-sided (cubic); 50 = current 60/25/15 mix; 100 = all 9-sided (octagonal).',
   },
   anisotropy: {
@@ -145,8 +147,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 40, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: false, louro: true, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 40, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: true, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
     semantic: 'Louro: anisotropic stretch (0 = circular cells; 100 = elongated cells along rotation axis).',
   },
   mitoticActivity: {
@@ -155,8 +157,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 15, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: true, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 15, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: true, pimenta: false, manjericao: false, oregano: false, alecrim: false },
     semantic: 'Alho: telophase probability. 0 = all interphase (single nuclei); 100 = all telophase (dividing pairs).',
   },
   curvature: {
@@ -165,8 +167,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 50, manjericao: 0, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: true, manjericao: false, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 50, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: true, manjericao: false, oregano: false, alecrim: false },
     semantic: 'Pimenta: hook intensity of chili swooshes. 0 = straight needles; 100 = strong curved hooks.',
   },
   flowCohesion: {
@@ -175,8 +177,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 30, manjericao: 0, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: true, manjericao: false, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 30, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: true, manjericao: false, oregano: false, alecrim: false },
     semantic: 'Pimenta: how aligned to the flow field. 0 = chaotic tumbling; 100 = perfectly aligned ranks.',
   },
   leavesPerRosette: {
@@ -185,8 +187,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 50, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 50, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false, alecrim: false },
     semantic: 'Manjericão: biases the 4/6/8 leaf-count tier distribution. 0 = all young 4-leaf; 100 = all mature 8-leaf.',
   },
   leafShape: {
@@ -195,8 +197,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 50, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 50, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false, alecrim: false },
     semantic: 'Manjericão: leaf width ratio. 0 = thin lanceolate; 50 = current ovate; 100 = wide rounded.',
   },
   rosetteVariation: {
@@ -205,8 +207,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 30, oregano: 0, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 30, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: true, oregano: false, alecrim: false },
     semantic: 'Manjericão: per-leaf angular jitter within a rosette. 0 = perfectly symmetric; 100 = chaotic asymmetry.',
   },
   clusterSpread: {
@@ -215,8 +217,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 50, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: true, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 50, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: true, alecrim: false },
     semantic: 'Orégano: spore spread radius. 0 = tightly packed clusters; 100 = wide dispersion across canvas.',
   },
   capsuleElongation: {
@@ -225,8 +227,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 50, alecrim: 0 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: true, alecrim: false },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 50, alecrim: 0 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: true, alecrim: false },
     semantic: 'Orégano: capsule aspect ratio. 0 = round dots; 100 = elongated ellipses.',
   },
   armCount: {
@@ -235,8 +237,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '',
     format: (v) => `${Math.round(v)}`,
     min: 3, max: 8, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 5 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: true },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 5 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: true },
     semantic: 'Alecrim: primary arms radiating from each trichome foot cell (3 = tripod, 8 = dense star).',
   },
   branchCount: {
@@ -245,8 +247,8 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 4, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 2 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: true },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 2 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: true },
     semantic: 'Alecrim: secondary branches per arm, alternating sides (0 = plain star, 4 = candelabra).',
   },
   branchSpacing: {
@@ -255,9 +257,39 @@ export const PARAMETERS: Record<ParamId, ParamSpec> = {
     uiUnit: '%',
     format: (v) => `${Math.round(v)}`,
     min: 0, max: 100, step: 1,
-    defaults: { sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 50 },
-    visibleFor: { sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: true },
+    defaults: { grupo: 0, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 50 },
+    visibleFor: { grupo: false, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: true },
     semantic: 'Alecrim: distance between consecutive branches along the arm. 0 = all branches fork from one point near the tip; 100 = spread from near the foot cell to the tip.',
+  },
+  piecesVariation: {
+    id: 'piecesVariation',
+    uiLabel: 'Variação de Tamanho',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { grupo: 100, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: true, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    semantic: 'Grupo: spread between the size tiers. 0 = every piece the same size; 100 = from ~1.75× to ~0.42× the base size.',
+  },
+  piecesSpacing: {
+    id: 'piecesSpacing',
+    uiLabel: 'Espaçamento',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { grupo: 25, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: true, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    semantic: 'Grupo: minimum gap between pieces, 2..40px absolute (never scales with zoom). 0 = pieces may kiss.',
+  },
+  piecesRotation: {
+    id: 'piecesRotation',
+    uiLabel: 'Giro das Peças',
+    uiUnit: '%',
+    format: (v) => `${Math.round(v)}`,
+    min: 0, max: 100, step: 1,
+    defaults: { grupo: 100, sal: 0, louro: 0, alho: 0, pimenta: 0, manjericao: 0, oregano: 0, alecrim: 0 },
+    visibleFor: { grupo: true, sal: false, louro: false, alho: false, pimenta: false, manjericao: false, oregano: false, alecrim: false },
+    semantic: 'Grupo: how far each piece may turn from its symbol orientation. 0 = all upright as in the symbol; 100 = any angle.',
   },
 };
 

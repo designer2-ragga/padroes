@@ -18,8 +18,10 @@ import iconPimenta from '/public/assets/icon-pimenta.svg?url';
 import iconManjericao from '/public/assets/icon-manjericao.svg?url';
 import iconOregano from '/public/assets/icon-oregano.svg?url';
 import iconAlecrim from '/public/assets/icon-alecrim.svg?url';
+import iconGrupo from '/public/assets/icon-grupo.svg?url';
 
 const SPICE_ICONS: Record<string, string> = {
+  grupo: iconGrupo,
   sal: iconSal,
   louro: iconLouro,
   alho: iconAlho,
@@ -29,12 +31,15 @@ const SPICE_ICONS: Record<string, string> = {
   alecrim: iconAlecrim,
 };
 
+// Default selection by id (not index) — the list order changes as patterns are added.
+const DEFAULT_SEASONING = TEMPEROS_RAGGA.find((t) => t.id === 'oregano') ?? TEMPEROS_RAGGA[0];
+
 export default function App() {
-  const [selectedSeasoning, setSelectedSeasoning] = useState<Seasoning>(TEMPEROS_RAGGA[5]); // Selected Oregano by default
+  const [selectedSeasoning, setSelectedSeasoning] = useState<Seasoning>(DEFAULT_SEASONING);
   
   // Master microscope & pattern configuration initialized with optimal composition rules
   const [config, setConfig] = useState<PatternConfig>(() => 
-    getCuratedConfigForSeasoning(TEMPEROS_RAGGA[5].id, 1.0, 'light', 1)
+    getCuratedConfigForSeasoning(DEFAULT_SEASONING.id, 1.0, 'light', 1)
   );
 
   const handleSelectSeasoning = (seasoning: Seasoning) => {

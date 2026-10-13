@@ -44,12 +44,26 @@ export interface PatternConfig {
   armCount?: number;             // Alecrim: primary arms per trichome (3..8)
   branchCount?: number;          // Alecrim: secondary branches per arm (0..4)
   branchSpacing?: number;        // Alecrim: gap between branches along the arm
+  piecesVariation?: number;      // Grupo: size-tier spread
+  piecesSpacing?: number;        // Grupo: minimum gap between pieces
+  piecesRotation?: number;       // Grupo: rotation freedom of each piece
 }
 
 // NOTE: per-spice parameter presets now live in src/engine/parameters.ts (PARAMETERS registry).
 // types.ts is type-only and brand-only.
 
 export const TEMPEROS_RAGGA: Seasoning[] = [
+  {
+    // Padrão-mãe: as 7 peças do símbolo do grupo, uma por vertical, juntas.
+    id: 'grupo',
+    name: 'Grupo',
+    emoji: '🍽️',
+    division: 'Grupo Ragga',
+    description: 'As 7 verticais juntas, com as peças do símbolo do grupo.',
+    primaryColor: '#2D1B4E',
+    secondaryColor: '#8A79B0',
+    metaphor: 'A definir'
+  },
   {
     id: 'sal',
     name: 'Sal',

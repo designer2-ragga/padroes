@@ -13,6 +13,7 @@ import {
   polygonCentroid,
   createAnisotropicTransform,
 } from '../engine/voronoi';
+import { GRUPO_PIECES } from '../engine/grupoShapes';
 
 // Deterministic pseudo-random number generator to prevent flickering patterns
 export class SeededRandom {
@@ -52,7 +53,8 @@ export const SEASONINGS_OKLCH: Record<string, OKLCHColor> = {
   pimenta: { l: 0.665, c: 0.177, h: 45, fallback: '#E86820' },
   manjericao: { l: 0.35, c: 0.16, h: 350, fallback: '#8A2040' },
   oregano: { l: 0.71, c: 0.17, h: 115, fallback: '#93B629' },
-  alecrim: { l: 0.4523, c: 0.1005, h: 139.81, fallback: '#35632A' }
+  alecrim: { l: 0.4523, c: 0.1005, h: 139.81, fallback: '#35632A' },
+  grupo: { l: 0.2758, c: 0.0901, h: 296.26, fallback: '#2D1B4E' }
 };
 
 // Neutral cream pole used in all theme inversions
@@ -1667,6 +1669,126 @@ function generateAlecrimSVGPatternString(config: PatternConfig, width: number, h
     ${content}</svg>`;
 }
 
+// ─── Grupo Ragga: "Colheita" — the 7 vertical pieces tossed together ────────
+//
+// Unlike the vertical patterns (one spice under the microscope), the group
+// pattern uses the symbol pieces themselves: every vertical side by side, like
+// ingredients tossed on a table. Pieces are packed large-first in size tiers so
+// the small ones fill the gaps, never touching (collision runs on each piece's
+// circle cover from grupoShapes.ts, so canvas and SVG share one layout without
+// a canvas), and a shuffled bag keeps the 7 verticals in balanced numbers.
+
+const GRUPO_BASE_RATIO = 0.09;          // medium piece long side / frame long side at zoom=100
+const GRUPO_MIN_GAP = 2;                // px at piecesSpacing=0 — collision circles are a cover, keep a hairline so pieces never overlap
+const GRUPO_MAX_GAP = 40;               // px at piecesSpacing=100
+// [size multiplier at piecesVariation=100, share of the piece count] — big first
+const GRUPO_TIERS: [number, number][] = [[1.75, 0.03], [1.25, 0.08], [0.88, 0.17], [0.6, 0.3], [0.42, 0.42]];
+const GRUPO_ATTEMPTS_PER_PIECE = 40;
+
+interface GrupoPlacement { piece: number; x: number; y: number; size: number; rot: number }
+
+function generateGrupoLayout(W: number, H: number, config: PatternConfig): GrupoPlacement[] {
+  const rng = new SeededRandom('grupo_colheita_v1_' + Math.round(config.layoutSeed ?? 1));
+  const zoom = config.zoom ?? 100;
+  const variation = (config.piecesVariation ?? 100) / 100;
+  const gap = GRUPO_MIN_GAP + ((config.piecesSpacing ?? 25) / 100) * (GRUPO_MAX_GAP - GRUPO_MIN_GAP);
+  const spin = (config.piecesRotation ?? 100) / 100;
+
+  const base = frameRefDim(W, H) * GRUPO_BASE_RATIO * scaleAtZoom(1, zoom, 'sqrt');
+  const total = targetCount(config.density ?? 24, W * H, SPICE_DENSITY_FACTORS.grupo, zoom, 0.7);
+  const sizeOf = (mult: number) => base * (1 + (mult - 1) * variation);
+  const maxSize = sizeOf(GRUPO_TIERS[0][0]);
+  const pad = maxSize / 2; // pieces bleed past the frame so edges are as full as the middle
+
+  // Spatial hash of placed collision circles. A cover circle never exceeds ~0.4 × piece size.
+  const cell = maxSize * 0.8 + gap;
+  const grid = new Map<number, { x: number; y: number; r: number }[]>();
+  const key = (gx: number, gy: number) => gx * 73856093 ^ gy * 19349663;
+  const coverOf = (piece: number, x: number, y: number, size: number, rot: number) => {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    return GRUPO_PIECES[piece].circles.map(([u, v, r]) => ({
+      x: x + (u * c - v * s) * size, y: y + (u * s + v * c) * size, r: r * size,
+    }));
+  };
+  const fits = (cover: { x: number; y: number; r: number }[]) => {
+    for (const a of cover) {
+      const gx = Math.floor(a.x / cell), gy = Math.floor(a.y / cell);
+      for (let i = gx - 1; i <= gx + 1; i++) for (let j = gy - 1; j <= gy + 1; j++) {
+        for (const b of grid.get(key(i, j)) ?? []) {
+          const min = a.r + b.r + gap;
+          if ((a.x - b.x) ** 2 + (a.y - b.y) ** 2 < min * min) return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  // Shuffled bag: every 7 picks contain each vertical once.
+  let bag: number[] = [];
+  const nextPiece = () => {
+    if (!bag.length) {
+      bag = GRUPO_PIECES.map((_, i) => i);
+      for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(rng.next() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; }
+    }
+    return bag.pop()!;
+  };
+
+  const placed: GrupoPlacement[] = [];
+  for (const [mult, share] of GRUPO_TIERS) {
+    const quota = Math.max(1, Math.round(total * share));
+    const size = sizeOf(mult);
+    let piece = nextPiece();
+    for (let ok = 0, tries = 0; ok < quota && tries < quota * GRUPO_ATTEMPTS_PER_PIECE; tries++) {
+      const x = rng.range(-pad, W + pad), y = rng.range(-pad, H + pad);
+      const rot = spin * rng.range(-Math.PI, Math.PI);
+      const cover = coverOf(piece, x, y, size, rot);
+      if (!fits(cover)) continue;
+      for (const c of cover) {
+        const k = key(Math.floor(c.x / cell), Math.floor(c.y / cell));
+        const list = grid.get(k); if (list) list.push(c); else grid.set(k, [c]);
+      }
+      placed.push({ piece, x, y, size, rot });
+      ok++;
+      piece = nextPiece();
+    }
+  }
+  return placed;
+}
+
+let grupoPathCache: Path2D[] | null = null;
+export function renderGrupoMicroscopeGrid(
+  ctx: CanvasRenderingContext2D, W: number, H: number, config: PatternConfig
+) {
+  const { bgColor, shapeColor } = deriveSpiceColors('grupo', config.themeMode);
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = shapeColor;
+  grupoPathCache ??= GRUPO_PIECES.map((p) => new Path2D(p.d));
+  for (const pl of generateGrupoLayout(W, H, config)) {
+    const p = GRUPO_PIECES[pl.piece], s = pl.size / p.len;
+    ctx.save();
+    ctx.translate(pl.x, pl.y);
+    ctx.rotate(pl.rot);
+    ctx.scale(s, s);
+    ctx.translate(-p.cx, -p.cy);
+    ctx.fill(grupoPathCache[pl.piece]);
+    ctx.restore();
+  }
+}
+
+// Grupo SVG — mirrors renderGrupoMicroscopeGrid exactly (same layout, same transforms)
+function generateGrupoSVGPatternString(config: PatternConfig, width: number, height: number): string {
+  const { bgColor, shapeColor } = deriveSpiceColorsHex('grupo', config.themeMode);
+  let content = `\n      <rect width="${width}" height="${height}" fill="${bgColor}" />\n  `;
+  for (const pl of generateGrupoLayout(width, height, config)) {
+    const p = GRUPO_PIECES[pl.piece], s = pl.size / p.len;
+    const t = `translate(${pl.x.toFixed(1)} ${pl.y.toFixed(1)}) rotate(${((pl.rot * 180) / Math.PI).toFixed(2)}) scale(${s.toFixed(4)}) translate(${-p.cx} ${-p.cy})`;
+    content += `    <path d="${p.d}" transform="${t}" fill="${shapeColor}" />\n`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    ${content}</svg>`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Master pattern tile generator
@@ -1709,6 +1831,11 @@ export function renderPatternTile(
 
   if (seasoning.id === 'alecrim') {
     renderAlecrimMicroscopeGrid(ctx, width, height, config);
+    return;
+  }
+
+  if (seasoning.id === 'grupo') {
+    renderGrupoMicroscopeGrid(ctx, width, height, config);
     return;
   }
 
@@ -1793,7 +1920,11 @@ export function generateSVGPatternString(
     return generateAlecrimSVGPatternString(config, width, height);
   }
 
-  // All 7 known spice ids are dispatched above. This branch is unreachable
+  if (seasoning.id === 'grupo') {
+    return generateGrupoSVGPatternString(config, width, height);
+  }
+
+  // All 8 known spice ids are dispatched above. This branch is unreachable
   // for valid inputs; throw rather than silently return empty SVG.
   throw new Error(`generateSVGPatternString: unknown seasoning id "${seasoning.id}"`);
 }
@@ -1849,6 +1980,9 @@ export function getCuratedConfigForSeasoning(
     armCount: PARAMETERS.armCount.defaults[spice],
     branchCount: PARAMETERS.branchCount.defaults[spice],
     branchSpacing: PARAMETERS.branchSpacing.defaults[spice],
+    piecesVariation: PARAMETERS.piecesVariation.defaults[spice],
+    piecesSpacing: PARAMETERS.piecesSpacing.defaults[spice],
+    piecesRotation: PARAMETERS.piecesRotation.defaults[spice],
   };
 }
 

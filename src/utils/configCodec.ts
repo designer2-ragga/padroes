@@ -42,6 +42,9 @@ const FIELDS: CodecField[] = [
   { short: 'ra', pid: 'armCount',          mul: 1 },
   { short: 'ga', pid: 'branchCount',       mul: 1 },
   { short: 'eg', pid: 'branchSpacing',     mul: 1 },
+  { short: 'pv', pid: 'piecesVariation',   mul: 1 },
+  { short: 'pe', pid: 'piecesSpacing',     mul: 1 },
+  { short: 'pg', pid: 'piecesRotation',    mul: 1 },
 ];
 
 const SHADER_SHORT: Record<ShaderId, string> = {
@@ -154,5 +157,5 @@ export function applyTagOverlay(
 
 // Helper: ensures the spice ID is valid (defensive type narrowing)
 export function isSpiceId(s: string): s is SpiceId {
-  return s === 'sal' || s === 'louro' || s === 'alho' || s === 'pimenta' || s === 'manjericao' || s === 'oregano' || s === 'alecrim';
+  return s === 'grupo' || s === 'sal' || s === 'louro' || s === 'alho' || s === 'pimenta' || s === 'manjericao' || s === 'oregano' || s === 'alecrim';
 }

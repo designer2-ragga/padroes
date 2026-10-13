@@ -146,6 +146,7 @@ export const SPICE_DENSITY_FACTORS: Record<string, number> = {
   oregano: 2.25,    // Oregano:  calibrated so targetCount(28, area, 2.25, 140, 0.7) ≈ 50
                     //   (matches old (density*2.5)/zm formula at curated default)
   alecrim: 5.0,     // Rosemary: targetCount(18, 1200², 5.0, 160, 0.7) ≈ 65 trichomes in view
+  grupo: 18,        // Group pieces: targetCount(24, 1200², 18, 100, 0.7) ≈ 432 attempted placements
 };
 
 // ─── Stroke philosophy ──────────────────────────────────────────────────────
