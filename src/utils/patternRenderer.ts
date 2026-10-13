@@ -142,6 +142,28 @@ function getThemeColors(seasoningId: string, isDark: boolean): { bg: string; fg:
 
 // clipPolygon + isPointInPolygon now live in src/engine/voronoi.ts (shared with future migrations).
 
+// ─── Frame-format consistency ───────────────────────────────────────────────
+//
+// Every format renders with a 1200px long side (Quadrado 1200², Paisagem
+// 1200×800, Cinema 1200×675, Retrato/Story 1200 tall). Structure sizes are
+// measured against that long side, never the short one: measuring against the
+// short side shrank every structure in non-square frames (Cinema ≈ 56% size,
+// ≈ 1/3 of the ink coverage of Quadrado). Count already follows area via
+// targetCount, so size + count stay identical per pixel in every format.
+// For a square frame long side = short side → output unchanged.
+function frameRefDim(W: number, H: number): number {
+  return Math.max(W, H);
+}
+
+// Grid sides for the Voronoi spices. A single M×M grid stretched over a wide
+// frame squashed every cell (and Alho's nuclei, sized from the short cell
+// side). Columns and rows now follow the frame aspect so cells keep their
+// square-frame shape and size. Square frames still get M×M, same RNG order.
+function voronoiGridSides(totalCount: number, W: number, H: number): { MX: number; MY: number } {
+  const side = (n: number) => Math.max(2, Math.min(22, Math.round(Math.sqrt(n))));
+  return { MX: side(totalCount * (W / H)), MY: side(totalCount * (H / W)) };
+}
+
 
 // Draw a closed polygon with rounded corners based on control parameter
 function drawRoundedPolygon(ctx: CanvasRenderingContext2D, poly: [number, number][], roundedness: number) {
@@ -265,23 +287,23 @@ export function renderLouroMicroscopeGrid(
   // Higher zoom → fewer/larger cells (zoomReduces=true) → microscopy intuition.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.louro, config.zoom ?? 100, true);
-  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const { MX, MY } = voronoiGridSides(totalCount, W, H);
 
   const rng = new SeededRandom('louro_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
   const jittersY: number[] = [];
-  for (let d = 0; d < M * M; d++) {
+  for (let d = 0; d < MX * MY; d++) {
     jittersX.push(rng.range(-0.35, 0.35));
     jittersY.push(rng.range(-0.35, 0.35));
   }
 
   const getSeed = (gi: number, gj: number) => {
-    const iWrap = (gi % M + M) % M;
-    const jWrap = (gj % M + M) % M;
-    const idx = jWrap * M + iWrap;
+    const iWrap = (gi % MX + MX) % MX;
+    const jWrap = (gj % MY + MY) % MY;
+    const idx = jWrap * MX + iWrap;
     
-    const cellW = W / M;
-    const cellH = H / M;
+    const cellW = W / MX;
+    const cellH = H / MY;
     
     const jx = jittersX[idx] * cellW;
     const jy = jittersY[idx] * cellH;
@@ -302,8 +324,8 @@ export function renderLouroMicroscopeGrid(
   const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(louroStretch, rotation);
 
   // Draw cells over an extended grid area to allow seamless wrapping
-  for (let gi = -4; gi <= M + 3; gi++) {
-    for (let gj = -4; gj <= M + 3; gj++) {
+  for (let gi = -4; gi <= MX + 3; gi++) {
+    for (let gj = -4; gj <= MY + 3; gj++) {
       const s0_orig = getSeed(gi, gj);
       const s0_t = toTransformed(s0_orig.x, s0_orig.y);
 
@@ -358,23 +380,23 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
   // Mirrors canvas density semantics exactly — same factor, same formula.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, width * height, SPICE_DENSITY_FACTORS.louro, config.zoom ?? 100, true);
-  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const { MX, MY } = voronoiGridSides(totalCount, width, height);
 
   const rng = new SeededRandom('louro_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
   const jittersY: number[] = [];
-  for (let d = 0; d < M * M; d++) {
+  for (let d = 0; d < MX * MY; d++) {
     jittersX.push(rng.range(-0.35, 0.35));
     jittersY.push(rng.range(-0.35, 0.35));
   }
 
   const getSeed = (gi: number, gj: number) => {
-    const iWrap = (gi % M + M) % M;
-    const jWrap = (gj % M + M) % M;
-    const idx = jWrap * M + iWrap;
+    const iWrap = (gi % MX + MX) % MX;
+    const jWrap = (gj % MY + MY) % MY;
+    const idx = jWrap * MX + iWrap;
     
-    const cellW = width / M;
-    const cellH = height / M;
+    const cellW = width / MX;
+    const cellH = height / MY;
     
     const jx = jittersX[idx] * cellW;
     const jy = jittersY[idx] * cellH;
@@ -393,8 +415,8 @@ function generateLouroSVGPatternString(config: PatternConfig, width: number, hei
   const louroStretch = 1.0 + ((config.anisotropy ?? 40) / 100) * 1.5;
   const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(louroStretch, rotation);
 
-  for (let gi = -4; gi <= M + 3; gi++) {
-    for (let gj = -4; gj <= M + 3; gj++) {
+  for (let gi = -4; gi <= MX + 3; gi++) {
+    for (let gj = -4; gj <= MY + 3; gj++) {
       const s0_orig = getSeed(gi, gj);
       const s0_t = toTransformed(s0_orig.x, s0_orig.y);
       
@@ -537,22 +559,22 @@ export function renderGarlicMicroscopeGrid(
   // SPICE_DENSITY_FACTORS.alho = 1.16 → M=3 at curated default (zoom=180, density=14).
   const density = config.density ?? 40;
   const totalCount = targetCount(density, W * H, SPICE_DENSITY_FACTORS.alho, config.zoom ?? 100, true);
-  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const { MX, MY } = voronoiGridSides(totalCount, W, H);
 
   const rng = new SeededRandom('garlic_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
   const jittersY: number[] = [];
-  for (let d = 0; d < M * M; d++) {
+  for (let d = 0; d < MX * MY; d++) {
     jittersX.push(rng.range(-0.32, 0.32));
     jittersY.push(rng.range(-0.32, 0.32));
   }
 
   const getSeed = (gi: number, gj: number) => {
-    const iWrap = (gi % M + M) % M;
-    const jWrap = (gj % M + M) % M;
-    const idx = jWrap * M + iWrap;
-    const cellW = W / M;
-    const cellH = H / M;
+    const iWrap = (gi % MX + MX) % MX;
+    const jWrap = (gj % MY + MY) % MY;
+    const idx = jWrap * MX + iWrap;
+    const cellW = W / MX;
+    const cellH = H / MY;
     const jx = jittersX[idx] * cellW;
     const jy = jittersY[idx] * cellH;
     const x = gi * cellW + cellW / 2 + jx;
@@ -566,8 +588,8 @@ export function renderGarlicMicroscopeGrid(
   // Garlic anisotropy: stretch 1.35 (more isotropic than Louro to keep nuclei readable inside cells).
   const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.35, rotation);
 
-  for (let gi = -4; gi <= M + 3; gi++) {
-    for (let gj = -4; gj <= M + 3; gj++) {
+  for (let gi = -4; gi <= MX + 3; gi++) {
+    for (let gj = -4; gj <= MY + 3; gj++) {
       const s0_orig = getSeed(gi, gj);
       const s0_t = toTransformed(s0_orig.x, s0_orig.y);
       let poly: [number, number][] = [
@@ -601,8 +623,8 @@ export function renderGarlicMicroscopeGrid(
       ctx.restore();
 
       const centroid = getPolygonCentroid(finalPoly);
-      const cellW = W / M;
-      const cellH = H / M;
+      const cellW = W / MX;
+      const cellH = H / MY;
       const localSize = Math.min(cellW, cellH) * 0.95;
 
       const rngCell = new SeededRandom('garlic_cell_mitosis_' + gi + '_' + gj + '_' + Math.round(config.layoutSeed ?? 1));
@@ -633,22 +655,22 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   // Mirrors canvas exactly — see renderGarlicMicroscopeGrid above.
   const density = config.density ?? 40;
   const totalCount = targetCount(density, width * height, SPICE_DENSITY_FACTORS.alho, config.zoom ?? 100, true);
-  const M = Math.max(2, Math.min(22, Math.round(Math.sqrt(totalCount))));
+  const { MX, MY } = voronoiGridSides(totalCount, width, height);
 
   const rng = new SeededRandom('garlic_microscope_voronoi_' + Math.round(config.layoutSeed ?? 1));
   const jittersX: number[] = [];
   const jittersY: number[] = [];
-  for (let d = 0; d < M * M; d++) {
+  for (let d = 0; d < MX * MY; d++) {
     jittersX.push(rng.range(-0.32, 0.32));
     jittersY.push(rng.range(-0.32, 0.32));
   }
 
   const getSeed = (gi: number, gj: number) => {
-    const iWrap = (gi % M + M) % M;
-    const jWrap = (gj % M + M) % M;
-    const idx = jWrap * M + iWrap;
-    const cellW = width / M;
-    const cellH = height / M;
+    const iWrap = (gi % MX + MX) % MX;
+    const jWrap = (gj % MY + MY) % MY;
+    const idx = jWrap * MX + iWrap;
+    const cellW = width / MX;
+    const cellH = height / MY;
     const jx = jittersX[idx] * cellW;
     const jy = jittersY[idx] * cellH;
     const x = gi * cellW + cellW / 2 + jx;
@@ -662,8 +684,8 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
   // Garlic anisotropy: stretch 1.35 (more isotropic than Louro to keep nuclei readable inside cells).
   const { toT: toTransformed, fromT: fromTransformed } = createAnisotropicTransform(1.35, rotation);
 
-  for (let gi = -4; gi <= M + 3; gi++) {
-    for (let gj = -4; gj <= M + 3; gj++) {
+  for (let gi = -4; gi <= MX + 3; gi++) {
+    for (let gj = -4; gj <= MY + 3; gj++) {
       const s0_orig = getSeed(gi, gj);
       const s0_t = toTransformed(s0_orig.x, s0_orig.y);
       let poly: [number, number][] = [
@@ -690,8 +712,8 @@ function generateGarlicSVGPatternString(config: PatternConfig, width: number, he
       tileContent += `    <path d="${dRoundedPath}" fill="${cellBgColor}" stroke="${wallColor}" stroke-width="${wallWidth}" stroke-linejoin="round" />\n`;
 
       const centroid = getPolygonCentroid(finalPoly);
-      const cellW = width / M;
-      const cellH = height / M;
+      const cellW = width / MX;
+      const cellH = height / MY;
       const localSize = Math.min(cellW, cellH) * 0.95;
 
       const rngCell = new SeededRandom('garlic_cell_mitosis_' + gi + '_' + gj + '_' + Math.round(config.layoutSeed ?? 1));
@@ -731,7 +753,7 @@ interface PimentaSwoosh {
 const PIMENTA_DENSITY_FACTOR = 2.2;        // → ~25 swooshes at curated default — enough to read the flow
 const PIMENTA_BASE_WIDTH_RATIO = 0.42;     // base width / length — chunky base
 const PIMENTA_BASE_CAP_DEPTH = 1.20;       // back-cap depth multiplier — large, visible rounded stem end
-const PIMENTA_FLOW_SCALE_RATIO = 0.45;     // flow-field scale / minDim — controls how smoothly the wind varies
+const PIMENTA_FLOW_SCALE_RATIO = 0.45;     // flow-field scale / frame long side — controls how smoothly the wind varies
 
 // Deterministic 2D flow field — smooth angular variation across the canvas.
 // Sum of low-frequency sines gives smooth currents with natural turbulence.
@@ -751,13 +773,13 @@ function generatePimentaSwooshes(W: number, H: number, config: PatternConfig): P
   const rng = new SeededRandom('pimenta_flow_v4_' + seed);
   const density = config.density ?? 22;
   const zoom = config.zoom ?? 100;
-  const minDim = Math.min(W, H);
-  const flowScale = minDim * PIMENTA_FLOW_SCALE_RATIO;
+  const refDim = frameRefDim(W, H);
+  const flowScale = refDim * PIMENTA_FLOW_SCALE_RATIO;
 
-  // Base length — ~6% of minDim at zoom=100, scales with sqrt of zoom.
+  // Base length — ~6% of refDim at zoom=100, scales with sqrt of zoom.
   // At default (zoom=340): ~133px tip-to-base. Smaller than v3 to allow more
   // swooshes to show the flow direction clearly.
-  const baseLen = minDim * 0.06 * scaleAtZoom(1, zoom, 'sqrt');
+  const baseLen = refDim * 0.06 * scaleAtZoom(1, zoom, 'sqrt');
   const desiredCount = Math.max(8, targetCount(density, W * H, PIMENTA_DENSITY_FACTOR, zoom, 0.5));
 
   // Size-aware Poisson-disc placement — uniform scatter to fill the field
@@ -947,7 +969,7 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
   // instead of ~12×, keeping the optical microscopy feel (cells never dominate frame).
   // Calibration: 0.0544 baseline anchors capsule size at the legacy value (~77px) when
   // zoom=140 (Orégano curated default).
-  const baseH = Math.min(W, H) * 0.0544 * scaleAtZoom(1, zoom, 'sqrt');
+  const baseH = frameRefDim(W, H) * 0.0544 * scaleAtZoom(1, zoom, 'sqrt');
   // minDist sizes the spatial grid for neighbor lookup; set to the minimum possible
   // capsule diameter (2 × min halfH = 2 × 0.70 × baseH = 1.4 × baseH) so the search
   // radius always captures all potential neighbors regardless of size variation.
@@ -1028,9 +1050,10 @@ function generateOreganoSporePositions(W: number, H: number, config: PatternConf
   while (spores.length < desiredCount && attempts < desiredCount * 50) {
     attempts++;
     const cc = clusters[Math.floor(rng.range(0, clusters.length))];
-    const spread = Math.min(W, H) * rng.range(spreadMin, spreadMax);
+    // Spread is a fraction of each axis, so wide/tall frames fill edge to edge (square unchanged).
+    const spread = rng.range(spreadMin, spreadMax);
     const a = rng.range(0, Math.PI * 2);
-    addSpore(cc.x + Math.cos(a) * spread * rng.range(0, 1), cc.y + Math.sin(a) * spread * rng.range(0, 1));
+    addSpore(cc.x + Math.cos(a) * spread * W * rng.range(0, 1), cc.y + Math.sin(a) * spread * H * rng.range(0, 1));
   }
 
   return spores;
@@ -1127,7 +1150,7 @@ function generateSalCrystalPositions(W: number, H: number, config: PatternConfig
   // SIZE: sqrt scaling — at zoom=1200 crystals grow ~3.46× instead of 12×.
   // 0.026 calibrated so baseR ≈ 34 px at default zoom=120, matching the
   // legacy avg particle size (16-42 range × 1.15 multiplier × 1.2 zoom ≈ 33 px).
-  const baseR = Math.min(W, H) * 0.026 * scaleAtZoom(1, zoom, 'sqrt');
+  const baseR = frameRefDim(W, H) * 0.026 * scaleAtZoom(1, zoom, 'sqrt');
   const minDist = baseR * 1.4;
 
   // COUNT: strength=0.5 (mild reduction) — Sal is a *mid feature* in the
@@ -1212,9 +1235,10 @@ function generateSalCrystalPositions(W: number, H: number, config: PatternConfig
     attempts++;
     if (rng.range(0, 1) < 0.80) {
       const cc = clusters[Math.floor(rng.range(0, clusters.length))];
-      const spread = Math.min(W, H) * rng.range(0.06, 0.42);
+      // Spread is a fraction of each axis, so wide/tall frames fill edge to edge (square unchanged).
+      const spread = rng.range(0.06, 0.42);
       const a = rng.range(0, Math.PI * 2);
-      place(cc.x + Math.cos(a) * spread * rng.range(0, 1), cc.y + Math.sin(a) * spread * rng.range(0, 1));
+      place(cc.x + Math.cos(a) * spread * W * rng.range(0, 1), cc.y + Math.sin(a) * spread * H * rng.range(0, 1));
     } else {
       place(rng.range(0, W), rng.range(0, H));
     }
@@ -1401,11 +1425,11 @@ function generateBasilLayout(W: number, H: number, config: PatternConfig): Basil
   const rng = new SeededRandom('basil_rosette_v7_' + seed);
   const density = config.density ?? 16;
   const zoom = config.zoom ?? 100;
-  const minDim = Math.min(W, H);
+  const refDim = frameRefDim(W, H);
   const sizeScale = scaleAtZoom(1, zoom, 'sqrt');
 
   // Per-rosette leaf length (each rosette has its own scale around this base)
-  const baseLeafLen = minDim * 0.10 * sizeScale;
+  const baseLeafLen = refDim * 0.10 * sizeScale;
   const nRosettes = Math.max(2, targetCount(density, W * H, ROSETTE_DENSITY_FACTOR, zoom, 0.6));
 
   const leaves: BasilLeaf[] = [];
@@ -1531,7 +1555,7 @@ function generateManjericaoSVGPatternString(config: PatternConfig, width: number
 // Canonical pipeline: size = scaleAtZoom(sqrt), count = targetCount(strength
 // 0.7), stroke = strokeWidth (absolute px, never scales with zoom).
 
-const ALECRIM_ARM_RATIO = 0.056;      // mean arm length / minDim at zoom=100 (~85px at 1200² default)
+const ALECRIM_ARM_RATIO = 0.056;      // mean arm length / frame long side at zoom=100 (~85px at 1200² default)
 const ALECRIM_TIP_RATIO = 0.42;       // arm tip width / arm base width
 const ALECRIM_BRANCH_TIP_END = 0.82;  // farthest branch attachment (fraction of arm length)
 const ALECRIM_BRANCH_SPREAD = 0.62;   // how far toward the foot cell branchSpacing=100 reaches
@@ -1572,7 +1596,7 @@ function generateAlecrimTrichomes(W: number, H: number, config: PatternConfig): 
   const spacingN = (config.branchSpacing ?? 50) / 100;
   const armW = strokeWidth(config.lineWidth || 4.2) * 2;
 
-  const armLen = Math.min(W, H) * ALECRIM_ARM_RATIO * scaleAtZoom(1, zoom, 'sqrt');
+  const armLen = frameRefDim(W, H) * ALECRIM_ARM_RATIO * scaleAtZoom(1, zoom, 'sqrt');
 
   // Trichomes bleed past the frame by one arm length so edges stay as dense as the middle.
   const pad = armLen;
